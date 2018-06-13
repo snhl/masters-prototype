@@ -985,7 +985,7 @@ template<class OP, class IN_T, class OUT_T>
 __global__ void
 exch_noShared_noChunk_fullCorp_kernel(IN_T  *d_img,
                                       OUT_T *d_his,
-                                      int *locks,
+                                      volatile int *locks,
                                       int img_sz,
                                       int his_sz)
 {
@@ -1004,14 +1004,8 @@ exch_noShared_noChunk_fullCorp_kernel(IN_T  *d_img,
   }
 
   while(!done) {
-    if(atomicExch(&locks[idx], 1) == 0) {
+    if(atomicExch((int *)&locks[idx], 1) == 0) {
       d_his[idx] = OP::apply(d_his[idx], val);
-      // the threadfence is necessary because no other
-      // thread can then read locks before d_his, i.e.,
-      // when the lock is unlocked it can only read the
-      // correct d_his value.
-      __threadfence();
-      //atomicExch(&locks[idx], 0);
       locks[idx] = 0;
       done = 1;
     }
@@ -1136,7 +1130,7 @@ template<class OP, class IN_T, class OUT_T>
 __global__ void
 exch_noShared_chunk_fullCorp_kernel(OUT_T *d_img,
                                     IN_T  *d_his,
-                                    int *d_locks,
+                                    volatile int *d_locks,
                                     int img_sz,
                                     int his_sz,
                                     int num_threads,
@@ -1159,14 +1153,10 @@ exch_noShared_chunk_fullCorp_kernel(OUT_T *d_img,
       }
 
       while(!done) {
-        if( atomicExch(&d_locks[idx], 1) == 0 ) {
+        if( atomicExch((int *)&d_locks[idx], 1) == 0 ) {
           d_his[idx] = OP::apply(d_his[idx], val);
-          __threadfence();
           d_locks[idx] = 0;
           done = 1;
-          // adds around 22 millis.
-          // but should it be used to avoid deadlocks like in 82?
-          //atomicExch(&d_locks[hid * his_sz + idx], 0);
         }
       }
     }
@@ -1257,7 +1247,7 @@ exch_noShared_chunk_corp_kernel(IN_T  *d_img,
                                 int num_threads,
                                 int seq_chunk,
                                 int corp_lvl,
-                                int *d_locks)
+                                volatile int *d_locks)
 {
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
   int ghidx = (gid / corp_lvl) * his_sz;
@@ -1277,14 +1267,11 @@ exch_noShared_chunk_corp_kernel(IN_T  *d_img,
       }
 
       while(!done) {
-        if( atomicExch(&d_locks[ghidx + idx], 1) == 0 ) {
+        if( atomicExch((int *)&d_locks[ghidx + idx], 1) == 0 ) {
           d_his[ghidx + idx] =
             OP::apply(d_his[ghidx + idx], val);
-          __threadfence();
           d_locks[ghidx + idx] = 0;
           done = 1;
-          // atomic operation here adds around 22 millis.
-          // atomicExch(&d_locks[hid * his_sz + idx], 0);
         }
       }
     }
@@ -1437,9 +1424,9 @@ exch_shared_chunk_corp_kernel(IN_T  *d_img,
   int his_block_sz = hists_per_block * his_sz;
 
   // initialize local histograms and locks
-  extern __shared__ int sh_mem[];
-  OUT_T *sh_his = sh_mem;
-  int   *sh_lck = (int *)&sh_his[his_block_sz];
+  volatile extern __shared__ int sh_mem[];
+  volatile OUT_T *sh_his = sh_mem;
+  volatile int *sh_lck = (int *)&sh_his[his_block_sz];
 
   // should this be split in two for better coalescing?
   if(tid < init_threads) {
@@ -1465,14 +1452,11 @@ exch_shared_chunk_corp_kernel(IN_T  *d_img,
       }
 
       while(!done) {
-        if( atomicExch(&sh_lck[lhidx + idx], 1) == 0 ) {
-          // race conditions here (RAW - both warning and error)
+        if( atomicExch((int *)&sh_lck[lhidx + idx], 1) == 0 ) {
           sh_his[lhidx + idx] =
             OP::apply(sh_his[lhidx + idx], val);
-          __threadfence();
-          // .. and here (r/w) -- creates deadlocks
-          //sh_lck[hid * his_sz + idx] = 0;
-          atomicExch(&sh_lck[lhidx + idx], 0);
+          //sh_lck[lhidx + idx] = 0;
+          atomicExch((int *)&sh_lck[lhidx + idx], 0);
           done = 1;
         }
       }
