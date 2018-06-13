@@ -340,12 +340,13 @@ aadd_noShared_chunk_corp(int *h_img,
   cudaMemset(d_his, 0, his_mem_sz * num_hists);
 
   /*
+  // adds larger overhead than cudaMemset for small histograms
   initialization_kernel<Add<int>, int>
     <<<grid_dim, block_dim>>>
     (d_his, his_sz, num_hists);
+  */
 
   cudaThreadSynchronize();
-  */
 
   aadd_noShared_chunk_corp_kernel<T>
     <<<grid_dim_fst, block_dim_fst>>>
@@ -355,13 +356,13 @@ aadd_noShared_chunk_corp(int *h_img,
 
   cudaThreadSynchronize();
 
+  gettimeofday(t_end, NULL); // do not time reduction
+
   reduce_kernel<Add<int>, T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_hists);
 
   cudaThreadSynchronize();
-
-  gettimeofday(t_end, NULL);
 
   int res = gpuAssert( cudaPeekAtLastError() );
 
@@ -499,13 +500,13 @@ int aadd_shared_chunk_corp(T *h_img,
 
   cudaThreadSynchronize();
 
+  gettimeofday(t_end, NULL); // do not time reduction
+
   reduce_kernel<Add<int>, T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_blocks * hists_per_block);
 
   cudaThreadSynchronize();
-
-  gettimeofday(t_end, NULL);
 
   int res = gpuAssert( cudaPeekAtLastError() );
 
@@ -775,6 +776,7 @@ CAS_noShared_chunk_corp(IN_T  *h_img,
   cudaMemset(d_his, 0, his_mem_sz * num_hists);
 
   /*
+  // seems not to make a big difference even for large histograms
   initialization_kernel<Add<int>, int>
     <<<grid_dim, block_dim>>>
     (d_his, his_sz, num_hists);
@@ -789,13 +791,13 @@ CAS_noShared_chunk_corp(IN_T  *h_img,
 
   cudaThreadSynchronize();
 
+  gettimeofday(t_end, NULL); // do not time reduction
+
   reduce_kernel<OP, OUT_T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_hists);
 
   cudaThreadSynchronize();
-
-  gettimeofday(t_end, NULL);
 
   int res = gpuAssert( cudaPeekAtLastError() );
 
@@ -958,13 +960,13 @@ CAS_shared_chunk_corp(IN_T  *h_img,
 
   cudaThreadSynchronize();
 
+  gettimeofday(t_end, NULL); // do not time reduction
+
   reduce_kernel<OP, OUT_T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_blocks * hists_per_block);
 
   cudaThreadSynchronize();
-
-  gettimeofday(t_end, NULL);
 
   int res = gpuAssert( cudaPeekAtLastError() );
 
@@ -1353,13 +1355,11 @@ exch_noShared_chunk_corp(IN_T  *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  // Adds significant overhead
-  // pixels: 1mio, his_sz: 1024, corp. level: 64, histos: 977
-  // seq. chunk: 16  ==> adds around 0.250 milliseconds.
   cudaMemset(d_his,   0, his_mem_sz * num_hists);
   cudaMemset(d_locks, 0, his_mem_sz * num_hists);
 
   /*
+  // seems to add a significant amount of time
   initialization_kernel<Add<int>, int>
     <<<grid_dim, block_dim>>>
     (d_his, his_sz, num_hists);
@@ -1378,13 +1378,13 @@ exch_noShared_chunk_corp(IN_T  *h_img,
 
   cudaThreadSynchronize();
 
+  gettimeofday(t_end, NULL); // do not time reduction
+
   reduce_kernel<OP, OUT_T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_hists);
 
   cudaThreadSynchronize();
-
-  gettimeofday(t_end, NULL);
 
   int res = gpuAssert( cudaPeekAtLastError() );
 
@@ -1428,11 +1428,10 @@ exch_shared_chunk_corp_kernel(IN_T  *d_img,
   volatile OUT_T *sh_his = sh_mem;
   volatile int *sh_lck = (int *)&sh_his[his_block_sz];
 
-  // should this be split in two for better coalescing?
   if(tid < init_threads) {
     for(int i=tid; i<his_block_sz; i+=init_threads) {
       sh_his[i] = OP::identity();
-      sh_lck[i] = 0;
+      //sh_lck[i] = 0;
     }
   }
   __syncthreads();
@@ -1455,6 +1454,7 @@ exch_shared_chunk_corp_kernel(IN_T  *d_img,
         if( atomicExch((int *)&sh_lck[lhidx + idx], 1) == 0 ) {
           sh_his[lhidx + idx] =
             OP::apply(sh_his[lhidx + idx], val);
+          // seems to deadlock if not atomicExch
           //sh_lck[lhidx + idx] = 0;
           atomicExch((int *)&sh_lck[lhidx + idx], 0);
           done = 1;
@@ -1486,9 +1486,8 @@ exch_shared_chunk_corp(IN_T  *h_img,
                        struct timeval *t_end,
                        int PRINT_INFO)
 {
-  // because of shared memory
   if(corp_lvl > BLOCK_SZ) {
-    printf("Error: corporation level cannot exceed block size\n");
+    printf("Error: cooporation level cannot exceed block size\n");
     return -1;
   }
 
@@ -1565,19 +1564,15 @@ exch_shared_chunk_corp(IN_T  *h_img,
      num_threads, seq_chunk, corp_lvl, num_hists, hists_per_block,
      sh_chunk, sh_chunk_threads);
 
-  /* cudaError_t err = cudaGetLastError(); */
-  /* if (err != cudaSuccess) */
-  /*   printf("Error: %s\n", cudaGetErrorString(err)); */
-
   cudaThreadSynchronize();
+
+  gettimeofday(t_end, NULL); // do not time reduction
 
   reduce_kernel<OP, OUT_T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_blocks * hists_per_block);
 
   cudaThreadSynchronize();
-
-  gettimeofday(t_end, NULL);
 
   int res = gpuAssert( cudaPeekAtLastError() );
 
@@ -1683,7 +1678,7 @@ warp_shared_corp(int *h_img,
                  struct timeval *t_end)
 {
   if(corp_lvl > 32) {
-    printf("Error: corporation level cannot exceed maximum"
+    printf("Error: cooporation level cannot exceed maximum"
            "number of warps in block\n");
     return;
   }
