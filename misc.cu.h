@@ -4,7 +4,7 @@
 #include <math.h>
 
 #define HWD      61440
-#define BLOCK_SZ 128
+#define BLOCK_SZ 1024
 
 #define NUM_THREADS(n)  min(n, HWD)
 

@@ -5,6 +5,18 @@
 #include "misc.cu.h"
 
 // https://stackoverflow.com/a/14038590
+int debugGpuAssert(cudaError_t code, int line)
+{
+  if(code != cudaSuccess) {
+    printf("GPU Error: %s as line %d\n",
+           cudaGetErrorString(code),
+           line);
+    return -1;
+  }
+
+  return 0;
+}
+
 int gpuAssert(cudaError_t code)
 {
   if(code != cudaSuccess) {
@@ -22,7 +34,7 @@ struct indval {
 };
 
 /* index function */
-__device__ inline
+__device__ __host__ inline
 struct indval
 f(int pixel, int his_sz)
 {
@@ -33,10 +45,10 @@ f(int pixel, int his_sz)
 }
 
 /* sequential scatter */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 void
-scatter_seq(T *img,
-            T *his,
+scatter_seq(IN_T  *img,
+            OUT_T *his,
             int img_sz,
             int his_sz,
             struct timeval *t_start,
@@ -46,9 +58,12 @@ scatter_seq(T *img,
 
   /* scatter */
   for(int i=0; i < img_sz; i ++) {
-    int pixel = img[i];
-    int idx = pixel % his_sz;
-    int val = pixel;
+    int idx; OUT_T val;
+    struct indval iv;
+
+    iv = f(img[i], his_sz);
+    idx = iv.index;
+    val = iv.value;
     his[idx] = OP::apply(his[idx], val);
   }
 
@@ -78,9 +93,9 @@ reduce_kernel(T *d_his,
 /* Common reduction kernel */
 
 /* Common initialization kernel */
-template<class OP, class T>
+template<class OP, class OUT_T>
 __global__ void
-initialization_kernel(T *d_his,
+initialization_kernel(OUT_T *d_his,
                       int his_sz,
                       int num_hists)
 {
@@ -121,7 +136,8 @@ aadd_noShared_noChunk_fullCorp(T *h_img,
                                int img_sz,
                                int his_sz,
                                struct timeval *t_start,
-                               struct timeval *t_end)
+                               struct timeval *t_end,
+                               int PRINT_INFO)
 {
   // allocate device memory
   unsigned int img_mem_sz = img_sz * sizeof(T);
@@ -137,8 +153,10 @@ aadd_noShared_noChunk_fullCorp(T *h_img,
   dim3 grid_dim (GRID_X_DIM (img_sz), 1, 1);
   dim3 block_dim(BLOCK_X_DIM(img_sz), 1, 1);
 
-  /* printf("Grid: %d\n", grid_dim.x); */
-  /* printf("Block: %d\n", block_dim.x); */
+  if(PRINT_INFO) {
+    printf("Grid: %d\n", grid_dim.x);
+    printf("Block: %d\n", block_dim.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
@@ -192,7 +210,8 @@ aadd_noShared_chunk_fullCorp(T *h_img,
                              int his_sz,
                              int num_threads,
                              struct timeval *t_start,
-                             struct timeval *t_end)
+                             struct timeval *t_end,
+                             int PRINT_INFO)
 {
   // allocate device memory
   unsigned int img_mem_sz = img_sz * sizeof(T);
@@ -207,6 +226,11 @@ aadd_noShared_chunk_fullCorp(T *h_img,
   // compute grid and block dimensions
   dim3 grid (GRID_X_DIM (num_threads), 1, 1);
   dim3 block(BLOCK_X_DIM(num_threads), 1, 1);
+
+  if(PRINT_INFO) {
+    printf("Grid: %d\n", grid.x);
+    printf("Block: %d\n", block.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
@@ -269,7 +293,8 @@ aadd_noShared_chunk_corp(int *h_img,
                          int corp_lvl,
                          int num_hists,
                          struct timeval *t_start,
-                         struct timeval *t_end)
+                         struct timeval *t_end,
+                         int PRINT_INFO)
 {
   // allocate device memory
   unsigned int img_mem_sz = img_sz * sizeof(T);
@@ -301,10 +326,12 @@ aadd_noShared_chunk_corp(int *h_img,
   dim3 grid_dim_snd (GRID_X_DIM (his_sz), 1, 1);
   dim3 block_dim_snd(BLOCK_X_DIM(his_sz), 1, 1);
 
-  /* printf("First - grid: %d\n", grid_dim_fst.x); */
-  /* printf("First - block: %d\n", block_dim_fst.x); */
-  /* printf("Second - grid: %d\n", grid_dim_snd.x); */
-  /* printf("Second - block: %d\n", block_dim_snd.x); */
+  if(PRINT_INFO) {
+    printf("First - grid: %d\n", grid_dim_fst.x);
+    printf("First - block: %d\n", block_dim_fst.x);
+    printf("Second - grid: %d\n", grid_dim_snd.x);
+    printf("Second - block: %d\n", block_dim_snd.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
@@ -396,16 +423,17 @@ aadd_shared_chunk_corp_kernel(T *d_img,
 }
 
 template<class T>
-int aadd_shared_chunk_corp(int *h_img,
-                            int *h_his,
-                            int img_sz,
-                            int his_sz,
-                            int num_threads,
-                            int seq_chunk,
-                            int corp_lvl,
-                            int num_hists,
-                            struct timeval *t_start,
-                            struct timeval *t_end)
+int aadd_shared_chunk_corp(T *h_img,
+                           T *h_his,
+                           int img_sz,
+                           int his_sz,
+                           int num_threads,
+                           int seq_chunk,
+                           int corp_lvl,
+                           int num_hists,
+                           struct timeval *t_start,
+                           struct timeval *t_end,
+                           int PRINT_INFO)
 {
   // allocate device memory
   unsigned int img_mem_sz = img_sz * sizeof(T);
@@ -429,12 +457,13 @@ int aadd_shared_chunk_corp(int *h_img,
     (total_hist / sh_chunk) :
     (total_hist / sh_chunk) + 1;
 
-  /* printf("Histograms per block: %d\n", hists_per_block); */
-  /* printf("Threads per block: %d\n", thrds_per_block); */
-  /* printf("Number of blocks: %d\n", num_blocks); */
-  /* printf("sh_chunk: %d\n", sh_chunk); */
-  /* printf("sh_chunk_threads: %d\n", sh_chunk_threads); */
-
+  if(PRINT_INFO) {
+    printf("Histograms per block: %d\n", hists_per_block);
+    printf("Threads per block: %d\n", thrds_per_block);
+    printf("Number of blocks: %d\n", num_blocks);
+    printf("sh_chunk: %d\n", sh_chunk);
+    printf("sh_chunk_threads: %d\n", sh_chunk_threads);
+  }
 
   // d_his contains all histograms from shared memory
   int *d_img, *d_his, *d_res;
@@ -452,10 +481,12 @@ int aadd_shared_chunk_corp(int *h_img,
   dim3 grid_dim_snd (GRID_X_DIM (his_sz), 1, 1);
   dim3 block_dim_snd(BLOCK_X_DIM(his_sz), 1, 1);
 
-  /* printf("First - grid: %d\n", grid_dim_fst.x); */
-  /* printf("First - block: %d\n", block_dim_fst.x); */
-  /* printf("Second - grid: %d\n", grid_dim_snd.x); */
-  /* printf("Second - block: %d\n", block_dim_snd.x); */
+  if(PRINT_INFO) {
+    printf("First - grid: %d\n", grid_dim_fst.x);
+    printf("First - block: %d\n", block_dim_fst.x);
+    printf("Second - grid: %d\n", grid_dim_snd.x);
+    printf("Second - block: %d\n", block_dim_snd.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
@@ -491,24 +522,24 @@ int aadd_shared_chunk_corp(int *h_img,
 
 /* -- 20 --
  * Manual lock - CAS in global memory - one hist. in global mem. */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 __global__ void
-CAS_noShared_noChunk_fullCorp_kernel(T *d_img,
-                                     T *d_his,
+CAS_noShared_noChunk_fullCorp_kernel(IN_T  *d_img,
+                                     OUT_T *d_his,
                                      int img_sz,
                                      int his_sz)
 {
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
   if(gid < img_sz) {
-    int idx, val;
+    int idx; OUT_T val;
     struct indval iv;
 
     iv = f(d_img[gid], his_sz);
     idx = iv.index;
     val = iv.value;
-    int old = d_his[idx];
-    int assumed;
+    OUT_T old = d_his[idx];
+    OUT_T assumed;
 
     do {
       assumed = old;
@@ -518,20 +549,21 @@ CAS_noShared_noChunk_fullCorp_kernel(T *d_img,
   }
 }
 
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 int
-CAS_noShared_noChunk_fullCorp(int *h_img,
-                              int *h_his,
+CAS_noShared_noChunk_fullCorp(IN_T  *h_img,
+                              OUT_T *h_his,
                               int img_sz,
                               int his_sz,
                               struct timeval *t_start,
-                              struct timeval *t_end)
+                              struct timeval *t_end,
+                              int PRINT_INFO)
 {
   // allocate device memory
-  unsigned int img_mem_sz = img_sz * sizeof(T);
-  unsigned int his_mem_sz = his_sz * sizeof(T);
+  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
+  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
 
-  int *d_img, *d_his;
+  IN_T *d_img; OUT_T *d_his;
   cudaMalloc((void **)&d_img, img_mem_sz);
   cudaMalloc((void **)&d_his, his_mem_sz);
   cudaMemcpy(d_img, h_img, img_mem_sz, cudaMemcpyHostToDevice);
@@ -540,6 +572,11 @@ CAS_noShared_noChunk_fullCorp(int *h_img,
   // compute grid and block dimensions
   dim3 grid_dim (GRID_X_DIM (img_sz), 1, 1);
   dim3 block_dim(BLOCK_X_DIM(img_sz), 1, 1);
+
+  if(PRINT_INFO) {
+    printf("Grid: %d\n", grid_dim.x);
+    printf("Block: %d\n", block_dim.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
@@ -567,10 +604,10 @@ CAS_noShared_noChunk_fullCorp(int *h_img,
 
 /* -- KERNEL ID: 21 -- */
 /* CAS - one histogram in global memory w. chunking */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 __global__ void
-CAS_noShared_chunk_fullCorp_kernel(T *d_img,
-                                   T *d_his,
+CAS_noShared_chunk_fullCorp_kernel(IN_T *d_img,
+                                   OUT_T *d_his,
                                    int img_sz,
                                    int his_sz,
                                    int num_threads,
@@ -579,7 +616,7 @@ CAS_noShared_chunk_fullCorp_kernel(T *d_img,
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
   if(gid < num_threads) {
-    int idx, val;
+    int idx; OUT_T val;
     struct indval iv;
 
     for(int i=gid; i<img_sz; i+=num_threads) {
@@ -587,8 +624,8 @@ CAS_noShared_chunk_fullCorp_kernel(T *d_img,
       idx = iv.index;
       val = iv.value;
 
-      int old = d_his[idx];
-      int assumed;
+      OUT_T old = d_his[idx];
+      OUT_T assumed;
       do {
         assumed = old;
         old = atomicCAS(&d_his[idx], assumed,
@@ -598,22 +635,23 @@ CAS_noShared_chunk_fullCorp_kernel(T *d_img,
   }
 }
 
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 int
-CAS_noShared_chunk_fullCorp(T *h_img,
-                            T *h_his,
+CAS_noShared_chunk_fullCorp(IN_T  *h_img,
+                            OUT_T *h_his,
                             int img_sz,
                             int his_sz,
                             int num_threads,
                             int seq_chunk,
                             struct timeval *t_start,
-                            struct timeval *t_end)
+                            struct timeval *t_end,
+                            int PRINT_INFO)
 {
   // allocate device memory
-  unsigned int img_mem_sz = img_sz * sizeof(T);
-  unsigned int his_mem_sz = his_sz * sizeof(T);
+  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
+  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
 
-  int *d_img, *d_his;
+  IN_T *d_img; OUT_T *d_his;
   cudaMalloc((void **)&d_img, img_mem_sz);
   cudaMalloc((void **)&d_his, his_mem_sz);
   cudaMemcpy(d_img, h_img, img_mem_sz, cudaMemcpyHostToDevice);
@@ -622,6 +660,11 @@ CAS_noShared_chunk_fullCorp(T *h_img,
   // compute grid and block dimensions
   dim3 grid (GRID_X_DIM (num_threads), 1, 1);
   dim3 block(BLOCK_X_DIM(num_threads), 1, 1);
+
+  if(PRINT_INFO) {
+    printf("Grid: %d\n", grid.x);
+    printf("Block: %d\n", block.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
@@ -649,10 +692,10 @@ CAS_noShared_chunk_fullCorp(T *h_img,
 
 /* -- KERNEL ID: 22 -- */
 /* Manual lock - CAS in global memory - corp. in global mem. */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 __global__ void
-CAS_noShared_chunk_corp_kernel(T *d_img,
-                               T *d_his,
+CAS_noShared_chunk_corp_kernel(IN_T  *d_img,
+                               OUT_T *d_his,
                                int img_sz,
                                int his_sz,
                                int num_threads,
@@ -663,7 +706,7 @@ CAS_noShared_chunk_corp_kernel(T *d_img,
   int ghidx = (gid / corp_lvl) * his_sz;
 
   if(gid < num_threads) {
-    int idx, val;
+    int idx; OUT_T val;
     struct indval iv;
 
     for(int i=gid; i<img_sz; i+=num_threads) {
@@ -671,8 +714,8 @@ CAS_noShared_chunk_corp_kernel(T *d_img,
       idx = iv.index;
       val = iv.value;
 
-      int old = d_his[ghidx + idx];
-      int assumed;
+      OUT_T old = d_his[ghidx + idx];
+      OUT_T assumed;
       do {
         assumed = old;
         old = atomicCAS(&d_his[ghidx + idx], assumed,
@@ -682,10 +725,10 @@ CAS_noShared_chunk_corp_kernel(T *d_img,
   }
 }
 
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 int
-CAS_noShared_chunk_corp(int *h_img,
-                        int *h_his,
+CAS_noShared_chunk_corp(IN_T  *h_img,
+                        OUT_T *h_his,
                         int img_sz,
                         int his_sz,
                         int num_threads,
@@ -693,13 +736,14 @@ CAS_noShared_chunk_corp(int *h_img,
                         int corp_lvl,
                         int num_hists,
                         struct timeval *t_start,
-                        struct timeval *t_end)
+                        struct timeval *t_end,
+                        int PRINT_INFO)
 {
   // allocate device memory
-  unsigned int img_mem_sz = img_sz * sizeof(T);
-  unsigned int his_mem_sz = his_sz * sizeof(T);
+  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
+  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
 
-  T *d_img, *d_his, *d_res;
+  IN_T *d_img; OUT_T *d_his, *d_res;
   cudaMalloc((void **)&d_img, img_mem_sz);
   cudaMalloc((void **)&d_his, his_mem_sz * num_hists);
   cudaMalloc((void **)&d_res, his_mem_sz);;
@@ -717,6 +761,13 @@ CAS_noShared_chunk_corp(int *h_img,
   dim3 grid_dim_snd (GRID_X_DIM (his_sz), 1, 1);
   dim3 block_dim_snd(BLOCK_X_DIM(his_sz), 1, 1);
 
+  if(PRINT_INFO) {
+    printf("First - grid: %d\n", grid_dim_fst.x);
+    printf("First - block: %d\n", block_dim_fst.x);
+    printf("Second - grid: %d\n", grid_dim_snd.x);
+    printf("Second - block: %d\n", block_dim_snd.x);
+  }
+
   // execute kernel
   gettimeofday(t_start, NULL);
 
@@ -731,14 +782,14 @@ CAS_noShared_chunk_corp(int *h_img,
   cudaThreadSynchronize();
   */
 
-  CAS_noShared_chunk_corp_kernel<OP, T>
+  CAS_noShared_chunk_corp_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst>>>
     (d_img, d_his, img_sz, his_sz,
      num_threads, seq_chunk, corp_lvl);
 
   cudaThreadSynchronize();
 
-  reduce_kernel<Add<int>, int>
+  reduce_kernel<OP, OUT_T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_hists);
 
@@ -761,10 +812,10 @@ CAS_noShared_chunk_corp(int *h_img,
 
 /* -- KERNEL ID: 23 -- */
 /* Manual lock - CAS in shared memory - corp. in shared mem. */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 __global__ void
-CAS_shared_chunk_corp_kernel(T *d_img,
-                             T *d_his,
+CAS_shared_chunk_corp_kernel(IN_T  *d_img,
+                             OUT_T *d_his,
                              int img_sz,
                              int his_sz,
                              int num_threads,
@@ -783,10 +834,10 @@ CAS_shared_chunk_corp_kernel(T *d_img,
   int ghidx = blockIdx.x * hists_per_block * his_sz;
 
   // initialize local histograms
-  extern __shared__ T sh_his[];
+  extern __shared__ OUT_T sh_his[];
   if(tid < init_threads) {
     for(int i=tid; i<his_block_sz; i+=init_threads) {
-      sh_his[i] = 0;
+      sh_his[i] = OP::identity();
     }
   }
   __syncthreads();
@@ -794,14 +845,14 @@ CAS_shared_chunk_corp_kernel(T *d_img,
   // scatter
   if(gid < num_threads) {
     for(int i=gid; i<img_sz; i+=num_threads) {
-      int idx, val;
+      int idx; OUT_T val;
       struct indval iv;
 
       iv = f(d_img[i], his_sz);
       idx = iv.index;
       val = iv.value;
-      int old = sh_his[lhidx + idx];
-      int assumed;
+      OUT_T old = sh_his[lhidx + idx];
+      OUT_T assumed;
 
       do {
         assumed = old;
@@ -822,10 +873,10 @@ CAS_shared_chunk_corp_kernel(T *d_img,
 
 }
 
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 int
-CAS_shared_chunk_corp(int *h_img,
-                      int *h_his,
+CAS_shared_chunk_corp(IN_T  *h_img,
+                      OUT_T *h_his,
                       int img_sz,
                       int his_sz,
                       int num_threads,
@@ -833,7 +884,8 @@ CAS_shared_chunk_corp(int *h_img,
                       int corp_lvl,
                       int num_hists,
                       struct timeval *t_start,
-                      struct timeval *t_end)
+                      struct timeval *t_end,
+                      int PRINT_INFO)
 {
   // because of shared memory
   if(corp_lvl > BLOCK_SZ) {
@@ -842,8 +894,8 @@ CAS_shared_chunk_corp(int *h_img,
   }
 
   // allocate device memory
-  unsigned int img_mem_sz = img_sz * sizeof(T);
-  unsigned int his_mem_sz = his_sz * sizeof(T);
+  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
+  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
 
   // histograms per block - maximum value is 1024
   int sh_mem_sz = 48 * 1024;
@@ -863,14 +915,16 @@ CAS_shared_chunk_corp(int *h_img,
     (total_hist / sh_chunk) :
     (total_hist / sh_chunk) + 1;
 
-  /* printf("Histograms per block: %d\n", hists_per_block); */
-  /* printf("Threads per block: %d\n", thrds_per_block); */
-  /* printf("Number of blocks: %d\n", num_blocks); */
-  /* printf("sh_chunk: %d\n", sh_chunk); */
-  /* printf("sh_chunk_threads: %d\n", sh_chunk_threads); */
+  if(PRINT_INFO) {
+    printf("Histograms per block: %d\n", hists_per_block);
+    printf("Threads per block: %d\n", thrds_per_block);
+    printf("Number of blocks: %d\n", num_blocks);
+    printf("sh_chunk: %d\n", sh_chunk);
+    printf("sh_chunk_threads: %d\n", sh_chunk_threads);
+  }
 
   // d_his contains all histograms from shared memory
-  int *d_img, *d_his, *d_res;
+  IN_T *d_img; OUT_T *d_his, *d_res;
   cudaMalloc((void **)&d_img, img_mem_sz);
   cudaMalloc((void **)&d_his,
              his_mem_sz * num_blocks * hists_per_block);
@@ -886,15 +940,17 @@ CAS_shared_chunk_corp(int *h_img,
   dim3 grid_dim_snd (GRID_X_DIM (his_sz), 1, 1);
   dim3 block_dim_snd(BLOCK_X_DIM(his_sz), 1, 1);
 
-  /* printf("First - grid: %d\n", grid_dim_fst.x); */
-  /* printf("First - block: %d\n", block_dim_fst.x); */
-  /* printf("Second - grid: %d\n", grid_dim_snd.x); */
-  /* printf("Second - block: %d\n", block_dim_snd.x); */
+  if(PRINT_INFO) {
+    printf("First - grid: %d\n", grid_dim_fst.x);
+    printf("First - block: %d\n", block_dim_fst.x);
+    printf("Second - grid: %d\n", grid_dim_snd.x);
+    printf("Second - block: %d\n", block_dim_snd.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  CAS_shared_chunk_corp_kernel<Add<int>, int>
+  CAS_shared_chunk_corp_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst, his_mem_sz * hists_per_block>>>
     (d_img, d_his, img_sz, his_sz,
      num_threads, seq_chunk, corp_lvl, num_hists, hists_per_block,
@@ -902,7 +958,7 @@ CAS_shared_chunk_corp(int *h_img,
 
   cudaThreadSynchronize();
 
-  reduce_kernel<Add<int>, int>
+  reduce_kernel<OP, OUT_T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_blocks * hists_per_block);
 
@@ -925,17 +981,17 @@ CAS_shared_chunk_corp(int *h_img,
 
 /* -- KERNEL ID: 30 -- */
 /* Exch. in global memory - one hist. in global mem.  */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 __global__ void
-exch_noShared_noChunk_fullCorp_kernel(T *d_img,
-                                      T *d_his,
+exch_noShared_noChunk_fullCorp_kernel(IN_T  *d_img,
+                                      OUT_T *d_his,
+                                      int *locks,
                                       int img_sz,
-                                      int his_sz,
-                                      int *locks)
+                                      int his_sz)
 {
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
-  int done, idx, val;
+  int done, idx; OUT_T val;
   struct indval iv;
 
   if(gid < img_sz) {
@@ -952,9 +1008,10 @@ exch_noShared_noChunk_fullCorp_kernel(T *d_img,
       d_his[idx] = OP::apply(d_his[idx], val);
       // the threadfence is necessary because no other
       // thread can then read locks before d_his, i.e.,
-      // when the locks is unlocked it can only read the
+      // when the lock is unlocked it can only read the
       // correct d_his value.
       __threadfence();
+      //atomicExch(&locks[idx], 0);
       locks[idx] = 0;
       done = 1;
     }
@@ -1001,23 +1058,27 @@ exch_noShared_noChunk_fullCorp_kernel(T *d_img,
   /* Why doesn't this work? */
 }
 
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 int
-exch_noShared_noChunk_fullCorp(int *h_img,
-                               int *h_his,
+exch_noShared_noChunk_fullCorp(IN_T  *h_img,
+                               OUT_T *h_his,
                                int img_sz,
                                int his_sz,
                                struct timeval *t_start,
-                               struct timeval *t_end)
+                               struct timeval *t_end,
+                               int PRINT_INFO)
 {
   // allocate device memory
-  unsigned int img_mem_sz  = img_sz * sizeof(T);
-  unsigned int his_mem_sz  = his_sz * sizeof(T);
+  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
+  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
+  unsigned int lck_mem_sz = his_sz * sizeof(int);
 
-  int *d_img, *d_his, *d_locks;
+  IN_T  *d_img;
+  OUT_T *d_his;
+  int *d_locks;
   cudaMalloc((void **)&d_img,   img_mem_sz);
   cudaMalloc((void **)&d_his,   his_mem_sz);
-  cudaMalloc((void **)&d_locks, his_mem_sz);
+  cudaMalloc((void **)&d_locks, lck_mem_sz);
   cudaMemcpy(d_img,   h_img, img_mem_sz, cudaMemcpyHostToDevice);
   cudaMemcpy(d_his,   h_his, his_mem_sz, cudaMemcpyHostToDevice);
 
@@ -1029,15 +1090,17 @@ exch_noShared_noChunk_fullCorp(int *h_img,
   dim3 grid_dim_fst (GRID_X_DIM (img_sz), 1, 1);
   dim3 block_dim_fst(BLOCK_X_DIM(img_sz), 1, 1);
 
-  /* printf("Grid: %d\n",  grid_dim.x); */
-  /* printf("Block: %d\n", block_dim.x); */
+  if(PRINT_INFO) {
+    printf("Grid: %d\n",  grid_dim.x);
+    printf("Block: %d\n", block_dim.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
 
   // Initializing locks with extra kernel (here)
   // - does not add anything
-  cudaMemset(d_locks, 0, his_mem_sz);
+  cudaMemset(d_locks, 0, lck_mem_sz);
 
   /*
   initialization_kernel<Add<int>, int>
@@ -1046,9 +1109,9 @@ exch_noShared_noChunk_fullCorp(int *h_img,
   cudaThreadSynchronize();
   */
 
-  exch_noShared_noChunk_fullCorp_kernel<OP, T>
+  exch_noShared_noChunk_fullCorp_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst>>>
-    (d_img, d_his, img_sz, his_sz, d_locks);
+    (d_img, d_his, d_locks, img_sz, his_sz);
 
   cudaThreadSynchronize();
 
@@ -1069,10 +1132,10 @@ exch_noShared_noChunk_fullCorp(int *h_img,
 
 /* -- KERNEL ID: 31 -- */
 /* Lock - Exch. - one histogram in global memory */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 __global__ void
-exch_noShared_chunk_fullCorp_kernel(T *d_img,
-                                    T *d_his,
+exch_noShared_chunk_fullCorp_kernel(OUT_T *d_img,
+                                    IN_T  *d_his,
                                     int *d_locks,
                                     int img_sz,
                                     int his_sz,
@@ -1082,7 +1145,7 @@ exch_noShared_chunk_fullCorp_kernel(T *d_img,
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
   if(gid < num_threads) {
-    int done, idx, val;
+    int done, idx; OUT_T val;
 
     for(int i=0; i<seq_chunk; i++) {
       if(gid + i * num_threads < img_sz) {
@@ -1110,25 +1173,27 @@ exch_noShared_chunk_fullCorp_kernel(T *d_img,
   }
 }
 
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 int
-exch_noShared_chunk_fullCorp(T *h_img,
-                             T *h_his,
+exch_noShared_chunk_fullCorp(IN_T  *h_img,
+                             OUT_T *h_his,
                              int img_sz,
                              int his_sz,
                              int num_threads,
                              int seq_chunk,
                              struct timeval *t_start,
-                             struct timeval *t_end)
+                             struct timeval *t_end,
+                             int PRINT_INFO)
 {
   // allocate device memory
-  unsigned int img_mem_sz  = img_sz * sizeof(T);
-  unsigned int his_mem_sz  = his_sz * sizeof(T);
+  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
+  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
+  unsigned int lck_mem_sz = his_sz * sizeof(int);
 
-  int *d_img, *d_his, *d_locks;
+  IN_T *d_img; OUT_T *d_his; int *d_locks;
   cudaMalloc((void **)&d_img,   img_mem_sz);
   cudaMalloc((void **)&d_his,   his_mem_sz);
-  cudaMalloc((void **)&d_locks, his_mem_sz);
+  cudaMalloc((void **)&d_locks, lck_mem_sz);
   cudaMemcpy(d_img,   h_img, img_mem_sz, cudaMemcpyHostToDevice);
   cudaMemcpy(d_his,   h_his, his_mem_sz, cudaMemcpyHostToDevice);
 
@@ -1139,6 +1204,11 @@ exch_noShared_chunk_fullCorp(T *h_img,
   // first kernel
   dim3 grid_dim_fst (GRID_X_DIM (num_threads), 1, 1);
   dim3 block_dim_fst(BLOCK_X_DIM(num_threads), 1, 1);
+
+  if(PRINT_INFO) {
+    printf("Grid: %d\n", grid_dim_fst.x);
+    printf("Block: %d\n", block_dim_fst.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
@@ -1154,7 +1224,7 @@ exch_noShared_chunk_fullCorp(T *h_img,
   cudaThreadSynchronize();
   */
 
-  exch_noShared_chunk_fullCorp_kernel<OP, T>
+  exch_noShared_chunk_fullCorp_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst>>>
     (d_img, d_his, d_locks,
      img_sz, his_sz, num_threads, seq_chunk);
@@ -1178,10 +1248,10 @@ exch_noShared_chunk_fullCorp(T *h_img,
 
 /* -- KERNEL ID: 32 -- */
 /* Manual lock - Exch. in global memory - corp. in global mem.  */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 __global__ void
-exch_noShared_chunk_corp_kernel(T *d_img,
-                                T *d_his,
+exch_noShared_chunk_corp_kernel(IN_T  *d_img,
+                                OUT_T *d_his,
                                 int img_sz,
                                 int his_sz,
                                 int num_threads,
@@ -1193,7 +1263,7 @@ exch_noShared_chunk_corp_kernel(T *d_img,
   int ghidx = (gid / corp_lvl) * his_sz;
 
   if(gid < num_threads) {
-    int done, idx, val;
+    int done, idx; OUT_T val;
 
     for(int i=0; i<seq_chunk; i++) {
       if(gid + i * num_threads < img_sz) {
@@ -1213,9 +1283,8 @@ exch_noShared_chunk_corp_kernel(T *d_img,
           __threadfence();
           d_locks[ghidx + idx] = 0;
           done = 1;
-          // adds around 22 millis.
-          // but should it be used to avoid deadlocks like in 82?
-          //atomicExch(&d_locks[hid * his_sz + idx], 0);
+          // atomic operation here adds around 22 millis.
+          // atomicExch(&d_locks[hid * his_sz + idx], 0);
         }
       }
     }
@@ -1247,10 +1316,10 @@ exch_noShared_chunk_corp_kernel(T *d_img,
 
 
 
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 int
-exch_noShared_chunk_corp(int *h_img,
-                         int *h_his,
+exch_noShared_chunk_corp(IN_T  *h_img,
+                         OUT_T *h_his,
                          int img_sz,
                          int his_sz,
                          int num_threads,
@@ -1258,15 +1327,17 @@ exch_noShared_chunk_corp(int *h_img,
                          int corp_lvl,
                          int num_hists,
                          struct timeval *t_start,
-                         struct timeval *t_end)
+                         struct timeval *t_end,
+                         int PRINT_INFO)
 {
   // allocate device memory
-  unsigned int img_mem_sz  = img_sz * sizeof(T);
-  unsigned int his_mem_sz  = his_sz * sizeof(T);
+  unsigned int img_mem_sz  = img_sz * sizeof(IN_T);
+  unsigned int his_mem_sz  = his_sz * sizeof(OUT_T);
   unsigned int lock_mem_sz = his_sz * sizeof(int);
 
-  int *d_locks;
-  T   *d_img, *d_his, *d_res;
+  int  *d_locks;
+  IN_T *d_img;
+  OUT_T *d_his, *d_res;
   cudaMalloc((void **)&d_img, img_mem_sz);
   cudaMalloc((void **)&d_res, his_mem_sz);
   cudaMalloc((void **)&d_his, his_mem_sz * num_hists);
@@ -1284,6 +1355,13 @@ exch_noShared_chunk_corp(int *h_img,
   // second kernel
   dim3 grid_dim_snd (GRID_X_DIM (his_sz), 1, 1);
   dim3 block_dim_snd(BLOCK_X_DIM(his_sz), 1, 1);
+
+  if(PRINT_INFO) {
+    printf("First - grid: %d\n", grid_dim_fst.x);
+    printf("First - block: %d\n", block_dim_fst.x);
+    printf("Second - grid: %d\n", grid_dim_snd.x);
+    printf("Second - block: %d\n", block_dim_snd.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
@@ -1306,14 +1384,14 @@ exch_noShared_chunk_corp(int *h_img,
   cudaThreadSynchronize();
   */
 
-  exch_noShared_chunk_corp_kernel<OP, T>
+  exch_noShared_chunk_corp_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst>>>
     (d_img, d_his, img_sz, his_sz,
      num_threads, seq_chunk, corp_lvl, d_locks);
 
   cudaThreadSynchronize();
 
-  reduce_kernel<OP, T>
+  reduce_kernel<OP, OUT_T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_hists);
 
@@ -1337,10 +1415,10 @@ exch_noShared_chunk_corp(int *h_img,
 
 /* -- KERNEL ID: 33 -- */
 /* Manual lock - Exch. in shared memory - corp. in shared mem. */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 __global__ void
-exch_shared_chunk_corp_kernel(T *d_img,
-                              T *d_his,
+exch_shared_chunk_corp_kernel(IN_T  *d_img,
+                              OUT_T *d_his,
                               int img_sz,
                               int his_sz,
                               int num_threads,
@@ -1360,8 +1438,8 @@ exch_shared_chunk_corp_kernel(T *d_img,
 
   // initialize local histograms and locks
   extern __shared__ int sh_mem[];
-  int *sh_his = sh_mem;
-  int *sh_lck = (int *)&sh_his[his_block_sz];
+  OUT_T *sh_his = sh_mem;
+  int   *sh_lck = (int *)&sh_his[his_block_sz];
 
   // should this be split in two for better coalescing?
   if(tid < init_threads) {
@@ -1374,7 +1452,7 @@ exch_shared_chunk_corp_kernel(T *d_img,
 
   // scatter
   if(gid < num_threads) {
-    int done, idx, val;
+    int done, idx; OUT_T val;
     for(int i=0; i<seq_chunk; i++) {
       if(gid + i * num_threads < img_sz) {
         struct indval iv;
@@ -1410,10 +1488,10 @@ exch_shared_chunk_corp_kernel(T *d_img,
   }
 }
 
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 int
-exch_shared_chunk_corp(int *h_img,
-                       int *h_his,
+exch_shared_chunk_corp(IN_T  *h_img,
+                       OUT_T *h_his,
                        int img_sz,
                        int his_sz,
                        int num_threads,
@@ -1421,7 +1499,8 @@ exch_shared_chunk_corp(int *h_img,
                        int corp_lvl,
                        int num_hists,
                        struct timeval *t_start,
-                       struct timeval *t_end)
+                       struct timeval *t_end,
+                       int PRINT_INFO)
 {
   // because of shared memory
   if(corp_lvl > BLOCK_SZ) {
@@ -1430,9 +1509,9 @@ exch_shared_chunk_corp(int *h_img,
   }
 
   // allocate device memory
-  unsigned int img_mem_sz = img_sz * sizeof(T);
-  unsigned int his_mem_sz = his_sz * sizeof(T);
-  unsigned int lck_mem_sz = his_sz * sizeof(T);
+  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
+  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
+  unsigned int lck_mem_sz = his_sz * sizeof(int);
 
   // histograms per block - maximum value is 1024
   int sh_mem_sz = 48 * 1024;
@@ -1454,11 +1533,13 @@ exch_shared_chunk_corp(int *h_img,
     (total_hist / sh_chunk) :
     (total_hist / sh_chunk) + 1;
 
-  /* printf("Histograms per block: %d\n", hists_per_block); */
-  /* printf("Threads per block: %d\n", thrds_per_block); */
-  /* printf("Number of blocks: %d\n", num_blocks); */
-  /* printf("sh_chunk: %d\n", sh_chunk); */
-  /* printf("sh_chunk_threads: %d\n", sh_chunk_threads); */
+  if(PRINT_INFO) {
+    printf("Histograms per block: %d\n", hists_per_block);
+    printf("Threads per block: %d\n", thrds_per_block);
+    printf("Number of blocks: %d\n", num_blocks);
+    printf("sh_chunk: %d\n", sh_chunk);
+    printf("sh_chunk_threads: %d\n", sh_chunk_threads);
+  }
 
   if(hists_per_block * (his_mem_sz + lck_mem_sz) > sh_mem_sz) {
     printf("Error: Histograms and locks exceed "
@@ -1467,7 +1548,7 @@ exch_shared_chunk_corp(int *h_img,
   }
 
   // d_his contains all histograms from shared memory
-  int *d_img, *d_his, *d_res;
+  IN_T *d_img; OUT_T *d_his, *d_res;
   cudaMalloc((void **)&d_img, img_mem_sz);
   cudaMalloc((void **)&d_res, his_mem_sz);
   cudaMalloc((void **)&d_his,
@@ -1483,15 +1564,17 @@ exch_shared_chunk_corp(int *h_img,
   dim3 grid_dim_snd (GRID_X_DIM (his_sz), 1, 1);
   dim3 block_dim_snd(BLOCK_X_DIM(his_sz), 1, 1);
 
-  /* printf("First - grid: %d\n", grid_dim_fst.x); */
-  /* printf("First - block: %d\n", block_dim_fst.x); */
-  /* printf("Second - grid: %d\n", grid_dim_snd.x); */
-  /* printf("Second - block: %d\n", block_dim_snd.x); */
+  if(PRINT_INFO) {
+    printf("First - grid: %d\n", grid_dim_fst.x);
+    printf("First - block: %d\n", block_dim_fst.x);
+    printf("Second - grid: %d\n", grid_dim_snd.x);
+    printf("Second - block: %d\n", block_dim_snd.x);
+  }
 
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  exch_shared_chunk_corp_kernel<OP, T>
+  exch_shared_chunk_corp_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst,
     (lck_mem_sz + his_mem_sz) * hists_per_block>>>
     (d_img, d_his, img_sz, his_sz,
@@ -1504,7 +1587,7 @@ exch_shared_chunk_corp(int *h_img,
 
   cudaThreadSynchronize();
 
-  reduce_kernel<OP, T>
+  reduce_kernel<OP, OUT_T>
     <<<grid_dim_snd, block_dim_snd>>>
     (d_his, d_res, img_sz, his_sz, num_blocks * hists_per_block);
 
@@ -1938,9 +2021,12 @@ void warp_optimized2(T *h_img,
 
 
 /* Indeterministic in global memory */
-template<class OP, class T>
+template<class OP, class IN_T, class OUT_T>
 __global__ void
-noAtomic_noShared_kernel(T *d_img, T* d_his, int img_sz, int his_sz)
+noAtomic_noShared_kernel(IN_T *d_img,
+                         OUT_T* d_his,
+                         int img_sz,
+                         int his_sz)
 {
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -1952,17 +2038,17 @@ noAtomic_noShared_kernel(T *d_img, T* d_his, int img_sz, int his_sz)
   }
 }
 
-template<class OP, class T>
-void noAtomic_noShared(int *h_img,
-                       int *h_his,
+template<class OP, class IN_T, class OUT_T>
+void noAtomic_noShared(IN_T *h_img,
+                       OUT_T *h_his,
                        int img_sz,
                        int his_sz,
                        struct timeval *t_start,
                        struct timeval *t_end)
 {
   // allocate device memory
-  unsigned int img_mem_sz = img_sz * sizeof(T);
-  unsigned int his_mem_sz = his_sz * sizeof(T);
+  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
+  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
 
   int *d_img, *d_his;
   cudaMalloc((void **)&d_img, img_mem_sz);
@@ -1977,7 +2063,8 @@ void noAtomic_noShared(int *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  noAtomic_noShared_kernel<OP, T><<<grid_dim, block_dim>>>
+  noAtomic_noShared_kernel<OP, IN_T, OUT_T>
+    <<<grid_dim, block_dim>>>
     (d_img, d_his, img_sz, his_sz);
 
   cudaThreadSynchronize();

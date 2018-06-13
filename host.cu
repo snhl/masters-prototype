@@ -41,8 +41,9 @@
   printf("%lu\n", time) : printf("%.3f\n", time / 1000.0))
 
 // misc
-#define MY_TYPE int
-#define MY_OP   Add<MY_TYPE>
+#define IN_T  int
+#define OUT_T int
+#define MY_OP Add<OUT_T>
 #define SHARED_MEMORY_SIZE (48 * 1024) // default is 48KB
 
 int main(int argc, const char* argv[])
@@ -55,7 +56,7 @@ int main(int argc, const char* argv[])
   }
 
   /* abort as soon as possible */
-  unsigned int his_mem_sz = his_sz * sizeof(MY_TYPE);
+  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
   int restrict = (kernel == 13 || kernel == 23 || kernel == 33);
   if(restrict && (his_mem_sz > SHARED_MEMORY_SIZE)) {
     printf("Error: Histogram exceeds shared memory size\n");
@@ -87,9 +88,9 @@ int main(int argc, const char* argv[])
   }
 
   /* malloc host memory */
-  MY_TYPE *h_img = (MY_TYPE *)malloc(img_sz * sizeof(MY_TYPE));
-  MY_TYPE *h_his = (MY_TYPE *)malloc(his_sz * sizeof(MY_TYPE));
-  MY_TYPE *h_seq = (MY_TYPE *)malloc(his_sz * sizeof(MY_TYPE));
+  IN_T  *h_img = (IN_T  *)malloc(img_sz * sizeof(IN_T));
+  OUT_T *h_his = (OUT_T *)malloc(his_sz * sizeof(OUT_T));
+  OUT_T *h_seq = (OUT_T *)malloc(his_sz * sizeof(OUT_T));
 
   /* parse data */
   int pixel;
@@ -108,8 +109,8 @@ int main(int argc, const char* argv[])
   fclose(fp);
 
   /* initialize result histograms with neutral element */
-  initialize_histogram<MY_OP, MY_TYPE>(h_seq, his_sz);
-  initialize_histogram<MY_OP, MY_TYPE>(h_his, his_sz);
+  initialize_histogram<MY_OP, OUT_T>(h_seq, his_sz);
+  initialize_histogram<MY_OP, OUT_T>(h_his, his_sz);
 
   /* compute seq. chunk, corp. level and num. histos */
   // 1) N number of threads.
@@ -159,89 +160,93 @@ int main(int argc, const char* argv[])
     /* Indeterministic - should never be used */
   case NOATOMIC_NOSHARED:
     printf("Kernel: NOATOMIC_NOSHARED\n");
-    noAtomic_noShared<Add<int>, int>
+    noAtomic_noShared<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz, &t_start, &t_end);
     break;
 
     /* Atomic add */
   case AADD_NOSHARED_NOCHUNK_FULLCORP: // 10
     printf("Kernel: AADD_NOSHARED_NOCHUNK_FULLCORP\n");
-    res = aadd_noShared_noChunk_fullCorp<MY_TYPE>
-      (h_img, h_his, img_sz, his_sz, &t_start, &t_end);
+    res = aadd_noShared_noChunk_fullCorp<IN_T>
+      (h_img, h_his, img_sz, his_sz, &t_start, &t_end,
+       PRINT_INFO);
     break;
   case AADD_NOSHARED_CHUNK_FULLCORP: // 11
     printf("Kernel: AADD_NOSHARED_CHUNK_FULLCORP\n");
-    res = aadd_noShared_chunk_fullCorp<MY_TYPE>
+    res = aadd_noShared_chunk_fullCorp<IN_T>
       (h_img, h_his, img_sz, his_sz, num_threads,
-       &t_start, &t_end);
+       &t_start, &t_end, PRINT_INFO);
     break;
   case AADD_NOSHARED_CHUNK_CORP: // 12
     printf("Kernel: AADD_NOSHARED_CHUNK_CORP\n");
-    res = aadd_noShared_chunk_corp<MY_TYPE>
+    res = aadd_noShared_chunk_corp<IN_T>
       (h_img, h_his, img_sz, his_sz,
        num_threads, seq_chunk, corp_lvl, num_hists,
-       &t_start, &t_end);
+       &t_start, &t_end, PRINT_INFO);
     break;
   case AADD_SHARED_CHUNK_CORP: // 13
     printf("Kernel: AADD_SHARED_CHUNK_CORP\n");
-    res = aadd_shared_chunk_corp<MY_TYPE>
+    res = aadd_shared_chunk_corp<IN_T>
       (h_img, h_his, img_sz, his_sz,
        num_threads, seq_chunk, corp_lvl, num_hists,
-       &t_start, &t_end);
+       &t_start, &t_end, PRINT_INFO);
     break;
 
     /* Locking - CAS */
   case ACAS_NOSHARED_NOCHUNK_FULLCORP: // 20
     printf("Kernel: ACAS_NOSHARED_NOCHUNK_FULLCORP\n");
-    res = CAS_noShared_noChunk_fullCorp<MY_OP, MY_TYPE>
-      (h_img, h_his, img_sz, his_sz, &t_start, &t_end);
+    res = CAS_noShared_noChunk_fullCorp
+      <MY_OP, IN_T, OUT_T>
+      (h_img, h_his, img_sz, his_sz, &t_start, &t_end,
+       PRINT_INFO);
     break;
   case ACAS_NOSHARED_CHUNK_FULLCORP: // 21
     printf("Kernel: ACAS_NOSHARED_CHUNK_FULLCORP\n");
-    res = CAS_noShared_chunk_fullCorp<MY_OP, MY_TYPE>
+    res = CAS_noShared_chunk_fullCorp<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz, num_threads, seq_chunk,
-       &t_start, &t_end);
+       &t_start, &t_end, PRINT_INFO);
     break;
   case ACAS_NOSHARED_CHUNK_CORP: // 22
     printf("Kernel: ACAS_NOSHARED_CHUNK_CORP\n");
-    res = CAS_noShared_chunk_corp<MY_OP, MY_TYPE>
+    res = CAS_noShared_chunk_corp<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz,
        num_threads, seq_chunk, corp_lvl, num_hists,
-       &t_start, &t_end);
+       &t_start, &t_end, PRINT_INFO);
     break;
   case ACAS_SHARED_CHUNK_CORP: // 23
     printf("Kernel: ACAS_SHARED_CHUNK_CORP\n");
-    res = CAS_shared_chunk_corp<MY_OP, MY_TYPE>
+    res = CAS_shared_chunk_corp<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz,
        num_threads, seq_chunk, corp_lvl, num_hists,
-       &t_start, &t_end);
+       &t_start, &t_end, PRINT_INFO);
     break;
 
     /* Locking - Exch */
   case AEXCH_NOSHARED_NOCHUNK_FULLCORP: // 30
     printf("Kernel: AEXCH_NOSHARED_NOCHUNK_FULLCORP\n");
-    res = exch_noShared_noChunk_fullCorp<MY_OP, MY_TYPE>
-      (h_img, h_his, img_sz, his_sz, &t_start, &t_end);
+    res = exch_noShared_noChunk_fullCorp<MY_OP, IN_T, OUT_T>
+      (h_img, h_his, img_sz, his_sz, &t_start, &t_end,
+       PRINT_INFO);
     break;
   case AEXCH_NOSHARED_CHUNK_FULLCORP: // 31
     printf("Kernel: AEXCH_NOSHARED_CHUNK_FULLCORP\n");
-    res = exch_noShared_chunk_fullCorp<MY_OP, MY_TYPE>
+    res = exch_noShared_chunk_fullCorp<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz, num_threads, seq_chunk,
-       &t_start, &t_end);
+       &t_start, &t_end, PRINT_INFO);
     break;
   case AEXCH_NOSHARED_CHUNK_CORP: // 32
     printf("Kernel: AEXCH_NOSHARED_CHUNK_CORP\n");
-    res = exch_noShared_chunk_corp<MY_OP, MY_TYPE>
+    res = exch_noShared_chunk_corp<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz,
        num_threads, seq_chunk, corp_lvl, num_hists,
-       &t_start, &t_end);
+       &t_start, &t_end, PRINT_INFO);
     break;
   case AEXCH_SHARED_CHUNK_CORP: // 33
     printf("Kernel: AEXCH_SHARED_CHUNK_CORP\n");
-    res = exch_shared_chunk_corp<MY_OP, MY_TYPE>
+    res = exch_shared_chunk_corp<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz,
        num_threads, seq_chunk, corp_lvl, num_hists,
-       &t_start, &t_end);
+       &t_start, &t_end, PRINT_INFO);
     break;
 
     /* There should be only one warp version */
@@ -279,7 +284,7 @@ int main(int argc, const char* argv[])
   unsigned long int seq_elapsed;
   struct timeval seq_start, seq_end, seq_diff;
 
-  scatter_seq<MY_OP, MY_TYPE>
+  scatter_seq<MY_OP, IN_T, OUT_T>
     (h_img, h_seq, img_sz, his_sz, &seq_start, &seq_end);
 
   /* compute elapsed time for sequential version */
@@ -287,12 +292,12 @@ int main(int argc, const char* argv[])
   seq_elapsed = seq_diff.tv_sec * 1e6 + seq_diff.tv_usec;
 
   /* validate */
-  int valid = validate_array<MY_TYPE>(h_his, h_seq, his_sz);
+  int valid = validate_array<OUT_T>(h_his, h_seq, his_sz);
   if(valid) { PRINT_RUNTIME(elapsed); }
   else      { printf("ERROR: Invalid!\n"); res = -1; }
 
   if(!valid && PRINT_INVALIDS) {
-    print_invalid_indices<MY_OP, MY_TYPE>(h_his, h_seq, his_sz);
+    print_invalid_indices<MY_OP, OUT_T>(h_his, h_seq, his_sz);
   }
 
   if(PRINT_SEQ_TIME) { PRINT_RUNTIME(seq_elapsed); }
