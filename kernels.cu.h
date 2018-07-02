@@ -114,7 +114,7 @@ initialization_kernel(OUT_T *d_his,
 /* Atomic add in global memory - one global histogram */
 template<class T>
 __global__ void
-aadd_noShared_noChunk_fullCorp_kernel(T *d_img,
+aadd_noShared_noChunk_fullCoop_kernel(T *d_img,
                                       T *d_his,
                                       int img_sz,
                                       int his_sz)
@@ -131,7 +131,7 @@ aadd_noShared_noChunk_fullCorp_kernel(T *d_img,
 
 template<class T>
 int
-aadd_noShared_noChunk_fullCorp(T *h_img,
+aadd_noShared_noChunk_fullCoop(T *h_img,
                                T *h_his,
                                int img_sz,
                                int his_sz,
@@ -161,7 +161,7 @@ aadd_noShared_noChunk_fullCorp(T *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  aadd_noShared_noChunk_fullCorp_kernel<T>
+  aadd_noShared_noChunk_fullCoop_kernel<T>
     <<<grid_dim, block_dim>>>
     (d_img, d_his, img_sz, his_sz);
 
@@ -186,7 +186,7 @@ aadd_noShared_noChunk_fullCorp(T *h_img,
 /* Atomic add, one global histogram, chunking */
 template<class T>
 __global__ void
-aadd_noShared_chunk_fullCorp_kernel(T *d_img,
+aadd_noShared_chunk_fullCoop_kernel(T *d_img,
                                     T *d_his,
                                     int img_sz,
                                     int his_sz,
@@ -204,7 +204,7 @@ aadd_noShared_chunk_fullCorp_kernel(T *d_img,
 
 template<class T>
 int
-aadd_noShared_chunk_fullCorp(T *h_img,
+aadd_noShared_chunk_fullCoop(T *h_img,
                              T *h_his,
                              int img_sz,
                              int his_sz,
@@ -235,7 +235,7 @@ aadd_noShared_chunk_fullCorp(T *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  aadd_noShared_chunk_fullCorp_kernel<T>
+  aadd_noShared_chunk_fullCoop_kernel<T>
     <<<grid, block>>>
     (d_img, d_his, img_sz, his_sz, num_threads);
 
@@ -257,22 +257,22 @@ aadd_noShared_chunk_fullCorp(T *h_img,
 
 
 /* -- KERNEL ID: 12 -- */
-/* Atomic add in global memory - w. corporation in global mem. */
+/* Atomic add in global memory - w. cooporation in global mem. */
 template<class T>
 __global__ void
-aadd_noShared_chunk_corp_kernel(T *d_img,
+aadd_noShared_chunk_coop_kernel(T *d_img,
                                 T *d_his,
                                 int img_sz,
                                 int his_sz,
                                 int num_threads,
                                 int seq_chunk,
-                                int corp_lvl,
+                                int coop_lvl,
                                 int num_hists,
                                 int init_chunk,
                                 int init_threads)
 {
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
-  int ghidx = (gid / corp_lvl) * his_sz; // global histogram
+  int ghidx = (gid / coop_lvl) * his_sz; // global histogram
 
   if(gid < num_threads) {
     for(int i=gid; i<img_sz; i+=num_threads) {
@@ -284,13 +284,13 @@ aadd_noShared_chunk_corp_kernel(T *d_img,
 
 template<class T>
 int
-aadd_noShared_chunk_corp(int *h_img,
+aadd_noShared_chunk_coop(int *h_img,
                          int *h_his,
                          int img_sz,
                          int his_sz,
                          int num_threads,
                          int seq_chunk,
-                         int corp_lvl,
+                         int coop_lvl,
                          int num_hists,
                          struct timeval *t_start,
                          struct timeval *t_end,
@@ -348,10 +348,10 @@ aadd_noShared_chunk_corp(int *h_img,
 
   cudaThreadSynchronize();
 
-  aadd_noShared_chunk_corp_kernel<T>
+  aadd_noShared_chunk_coop_kernel<T>
     <<<grid_dim_fst, block_dim_fst>>>
     (d_img, d_his, img_sz, his_sz,
-     num_threads, seq_chunk, corp_lvl, num_hists,
+     num_threads, seq_chunk, coop_lvl, num_hists,
      init_chunk, init_threads);
 
   cudaThreadSynchronize();
@@ -378,15 +378,15 @@ aadd_noShared_chunk_corp(int *h_img,
 
 
 /* -- KERNEL ID: 13 -- */
-/* Atomic add in shared memory - w. corporation in shared mem. */
+/* Atomic add in shared memory - w. cooporation in shared mem. */
 template<class T>
 __global__ void
-aadd_shared_chunk_corp_kernel(T *d_img,
+aadd_shared_chunk_coop_kernel(T *d_img,
                               T *d_his,
                               int img_sz,
                               int his_sz,
                               int num_threads,
-                              int corp_lvl,
+                              int coop_lvl,
                               int num_hists,
                               int hists_per_block,
                               int init_threads)
@@ -394,7 +394,7 @@ aadd_shared_chunk_corp_kernel(T *d_img,
   const unsigned int tid = threadIdx.x;
   const unsigned int gid = blockIdx.x * blockDim.x + tid;
   int his_block_sz = hists_per_block * his_sz;
-  int lhid = (tid / corp_lvl) * his_sz; // local histogram idx
+  int lhid = (tid / coop_lvl) * his_sz; // local histogram idx
   int ghid = blockIdx.x * hists_per_block * his_sz;
 
   // initialize local histograms
@@ -424,13 +424,13 @@ aadd_shared_chunk_corp_kernel(T *d_img,
 }
 
 template<class T>
-int aadd_shared_chunk_corp(T *h_img,
+int aadd_shared_chunk_coop(T *h_img,
                            T *h_his,
                            int img_sz,
                            int his_sz,
                            int num_threads,
                            int seq_chunk,
-                           int corp_lvl,
+                           int coop_lvl,
                            int num_hists,
                            struct timeval *t_start,
                            struct timeval *t_end,
@@ -444,9 +444,9 @@ int aadd_shared_chunk_corp(T *h_img,
   int sh_mem_sz = 48 * 1024;
   int hists_per_block = min(
                             (sh_mem_sz / his_mem_sz),
-                            (BLOCK_SZ / corp_lvl)
+                            (BLOCK_SZ / coop_lvl)
                             );
-  int thrds_per_block = hists_per_block * corp_lvl;
+  int thrds_per_block = hists_per_block * coop_lvl;
   int num_blocks = ceil(num_hists / (float)hists_per_block);
 
   // compute numbers needed for initialization and copy steps
@@ -492,10 +492,10 @@ int aadd_shared_chunk_corp(T *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  aadd_shared_chunk_corp_kernel<T>
+  aadd_shared_chunk_coop_kernel<T>
     <<<grid_dim_fst, block_dim_fst, his_mem_sz * hists_per_block>>>
     (d_img, d_his, img_sz, his_sz,
-     num_threads, corp_lvl, num_hists, hists_per_block,
+     num_threads, coop_lvl, num_hists, hists_per_block,
      sh_chunk_threads);
 
   cudaThreadSynchronize();
@@ -525,7 +525,7 @@ int aadd_shared_chunk_corp(T *h_img,
  * Manual lock - CAS in global memory - one hist. in global mem. */
 template<class OP, class IN_T, class OUT_T>
 __global__ void
-CAS_noShared_noChunk_fullCorp_kernel(IN_T  *d_img,
+CAS_noShared_noChunk_fullCoop_kernel(IN_T  *d_img,
                                      OUT_T *d_his,
                                      int img_sz,
                                      int his_sz)
@@ -552,7 +552,7 @@ CAS_noShared_noChunk_fullCorp_kernel(IN_T  *d_img,
 
 template<class OP, class IN_T, class OUT_T>
 int
-CAS_noShared_noChunk_fullCorp(IN_T  *h_img,
+CAS_noShared_noChunk_fullCoop(IN_T  *h_img,
                               OUT_T *h_his,
                               int img_sz,
                               int his_sz,
@@ -582,7 +582,7 @@ CAS_noShared_noChunk_fullCorp(IN_T  *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  CAS_noShared_noChunk_fullCorp_kernel<Add<int>, int>
+  CAS_noShared_noChunk_fullCoop_kernel<Add<int>, int>
     <<<grid_dim, block_dim>>>
     (d_img, d_his, img_sz, his_sz);
 
@@ -607,7 +607,7 @@ CAS_noShared_noChunk_fullCorp(IN_T  *h_img,
 /* CAS - one histogram in global memory w. chunking */
 template<class OP, class IN_T, class OUT_T>
 __global__ void
-CAS_noShared_chunk_fullCorp_kernel(IN_T *d_img,
+CAS_noShared_chunk_fullCoop_kernel(IN_T *d_img,
                                    OUT_T *d_his,
                                    int img_sz,
                                    int his_sz,
@@ -638,7 +638,7 @@ CAS_noShared_chunk_fullCorp_kernel(IN_T *d_img,
 
 template<class OP, class IN_T, class OUT_T>
 int
-CAS_noShared_chunk_fullCorp(IN_T  *h_img,
+CAS_noShared_chunk_fullCoop(IN_T  *h_img,
                             OUT_T *h_his,
                             int img_sz,
                             int his_sz,
@@ -670,7 +670,7 @@ CAS_noShared_chunk_fullCorp(IN_T  *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  CAS_noShared_chunk_fullCorp_kernel<Add<int>, int>
+  CAS_noShared_chunk_fullCoop_kernel<Add<int>, int>
     <<<grid, block>>>
     (d_img, d_his, img_sz, his_sz, num_threads, seq_chunk);
 
@@ -692,19 +692,19 @@ CAS_noShared_chunk_fullCorp(IN_T  *h_img,
 
 
 /* -- KERNEL ID: 22 -- */
-/* Manual lock - CAS in global memory - corp. in global mem. */
+/* Manual lock - CAS in global memory - coop. in global mem. */
 template<class OP, class IN_T, class OUT_T>
 __global__ void
-CAS_noShared_chunk_corp_kernel(IN_T  *d_img,
+CAS_noShared_chunk_coop_kernel(IN_T  *d_img,
                                OUT_T *d_his,
                                int img_sz,
                                int his_sz,
                                int num_threads,
                                int seq_chunk,
-                               int corp_lvl)
+                               int coop_lvl)
 {
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
-  int ghidx = (gid / corp_lvl) * his_sz;
+  int ghidx = (gid / coop_lvl) * his_sz;
 
   if(gid < num_threads) {
     int idx; OUT_T val;
@@ -728,13 +728,13 @@ CAS_noShared_chunk_corp_kernel(IN_T  *d_img,
 
 template<class OP, class IN_T, class OUT_T>
 int
-CAS_noShared_chunk_corp(IN_T  *h_img,
+CAS_noShared_chunk_coop(IN_T  *h_img,
                         OUT_T *h_his,
                         int img_sz,
                         int his_sz,
                         int num_threads,
                         int seq_chunk,
-                        int corp_lvl,
+                        int coop_lvl,
                         int num_hists,
                         struct timeval *t_start,
                         struct timeval *t_end,
@@ -784,10 +784,10 @@ CAS_noShared_chunk_corp(IN_T  *h_img,
   cudaThreadSynchronize();
   */
 
-  CAS_noShared_chunk_corp_kernel<OP, IN_T, OUT_T>
+  CAS_noShared_chunk_coop_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst>>>
     (d_img, d_his, img_sz, his_sz,
-     num_threads, seq_chunk, corp_lvl);
+     num_threads, seq_chunk, coop_lvl);
 
   cudaThreadSynchronize();
 
@@ -813,16 +813,16 @@ CAS_noShared_chunk_corp(IN_T  *h_img,
 
 
 /* -- KERNEL ID: 23 -- */
-/* Manual lock - CAS in shared memory - corp. in shared mem. */
+/* Manual lock - CAS in shared memory - coop. in shared mem. */
 template<class OP, class IN_T, class OUT_T>
 __global__ void
-CAS_shared_chunk_corp_kernel(IN_T  *d_img,
+CAS_shared_chunk_coop_kernel(IN_T  *d_img,
                              OUT_T *d_his,
                              int img_sz,
                              int his_sz,
                              int num_threads,
                              int seq_chunk,
-                             int corp_lvl,
+                             int coop_lvl,
                              int num_hists,
                              int hists_per_block,
                              int init_chunk,
@@ -832,7 +832,7 @@ CAS_shared_chunk_corp_kernel(IN_T  *d_img,
   const unsigned int tid = threadIdx.x;
   const unsigned int gid = blockIdx.x * blockDim.x + tid;
   int his_block_sz = hists_per_block * his_sz;
-  int lhidx = (tid / corp_lvl) * his_sz;
+  int lhidx = (tid / coop_lvl) * his_sz;
   int ghidx = blockIdx.x * hists_per_block * his_sz;
 
   // initialize local histograms
@@ -877,21 +877,21 @@ CAS_shared_chunk_corp_kernel(IN_T  *d_img,
 
 template<class OP, class IN_T, class OUT_T>
 int
-CAS_shared_chunk_corp(IN_T  *h_img,
+CAS_shared_chunk_coop(IN_T  *h_img,
                       OUT_T *h_his,
                       int img_sz,
                       int his_sz,
                       int num_threads,
                       int seq_chunk,
-                      int corp_lvl,
+                      int coop_lvl,
                       int num_hists,
                       struct timeval *t_start,
                       struct timeval *t_end,
                       int PRINT_INFO)
 {
   // because of shared memory
-  if(corp_lvl > BLOCK_SZ) {
-    printf("Error: corporation level cannot exceed block size\n");
+  if(coop_lvl > BLOCK_SZ) {
+    printf("Error: cooporation level cannot exceed block size\n");
     return -1;
   }
 
@@ -903,9 +903,9 @@ CAS_shared_chunk_corp(IN_T  *h_img,
   int sh_mem_sz = 48 * 1024;
   int hists_per_block = min(
                             (sh_mem_sz / his_mem_sz),
-                            (BLOCK_SZ / corp_lvl)
+                            (BLOCK_SZ / coop_lvl)
                             );
-  int thrds_per_block = hists_per_block * corp_lvl;
+  int thrds_per_block = hists_per_block * coop_lvl;
   int num_blocks = ceil(num_hists / (float)hists_per_block);
 
   // compute numbers needed for initialization and copy steps
@@ -952,10 +952,10 @@ CAS_shared_chunk_corp(IN_T  *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  CAS_shared_chunk_corp_kernel<OP, IN_T, OUT_T>
+  CAS_shared_chunk_coop_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst, his_mem_sz * hists_per_block>>>
     (d_img, d_his, img_sz, his_sz,
-     num_threads, seq_chunk, corp_lvl, num_hists, hists_per_block,
+     num_threads, seq_chunk, coop_lvl, num_hists, hists_per_block,
      sh_chunk, sh_chunk_threads);
 
   cudaThreadSynchronize();
@@ -985,7 +985,7 @@ CAS_shared_chunk_corp(IN_T  *h_img,
 /* Exch. in global memory - one hist. in global mem.  */
 template<class OP, class IN_T, class OUT_T>
 __global__ void
-exch_noShared_noChunk_fullCorp_kernel(IN_T  *d_img,
+exch_noShared_noChunk_fullCoop_kernel(IN_T  *d_img,
                                       OUT_T *d_his,
                                       volatile int *locks,
                                       int img_sz,
@@ -1008,7 +1008,8 @@ exch_noShared_noChunk_fullCorp_kernel(IN_T  *d_img,
   while(!done) {
     if(atomicExch((int *)&locks[idx], 1) == 0) {
       d_his[idx] = OP::apply(d_his[idx], val);
-      locks[idx] = 0;
+      __threadfence();
+      atomicExch((int *)&locks[idx], 0);
       done = 1;
     }
   }
@@ -1056,7 +1057,7 @@ exch_noShared_noChunk_fullCorp_kernel(IN_T  *d_img,
 
 template<class OP, class IN_T, class OUT_T>
 int
-exch_noShared_noChunk_fullCorp(IN_T  *h_img,
+exch_noShared_noChunk_fullCoop(IN_T  *h_img,
                                OUT_T *h_his,
                                int img_sz,
                                int his_sz,
@@ -1105,7 +1106,7 @@ exch_noShared_noChunk_fullCorp(IN_T  *h_img,
   cudaThreadSynchronize();
   */
 
-  exch_noShared_noChunk_fullCorp_kernel<OP, IN_T, OUT_T>
+  exch_noShared_noChunk_fullCoop_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst>>>
     (d_img, d_his, d_locks, img_sz, his_sz);
 
@@ -1130,7 +1131,7 @@ exch_noShared_noChunk_fullCorp(IN_T  *h_img,
 /* Lock - Exch. - one histogram in global memory */
 template<class OP, class IN_T, class OUT_T>
 __global__ void
-exch_noShared_chunk_fullCorp_kernel(OUT_T *d_img,
+exch_noShared_chunk_fullCoop_kernel(OUT_T *d_img,
                                     IN_T  *d_his,
                                     volatile int *d_locks,
                                     int img_sz,
@@ -1157,7 +1158,8 @@ exch_noShared_chunk_fullCorp_kernel(OUT_T *d_img,
       while(!done) {
         if( atomicExch((int *)&d_locks[idx], 1) == 0 ) {
           d_his[idx] = OP::apply(d_his[idx], val);
-          d_locks[idx] = 0;
+          __threadfence();
+          atomicExch((int *)&d_locks[idx], 0);
           done = 1;
         }
       }
@@ -1167,7 +1169,7 @@ exch_noShared_chunk_fullCorp_kernel(OUT_T *d_img,
 
 template<class OP, class IN_T, class OUT_T>
 int
-exch_noShared_chunk_fullCorp(IN_T  *h_img,
+exch_noShared_chunk_fullCoop(IN_T  *h_img,
                              OUT_T *h_his,
                              int img_sz,
                              int his_sz,
@@ -1216,7 +1218,7 @@ exch_noShared_chunk_fullCorp(IN_T  *h_img,
   cudaThreadSynchronize();
   */
 
-  exch_noShared_chunk_fullCorp_kernel<OP, IN_T, OUT_T>
+  exch_noShared_chunk_fullCoop_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst>>>
     (d_img, d_his, d_locks,
      img_sz, his_sz, num_threads, seq_chunk);
@@ -1239,20 +1241,20 @@ exch_noShared_chunk_fullCorp(IN_T  *h_img,
 
 
 /* -- KERNEL ID: 32 -- */
-/* Manual lock - Exch. in global memory - corp. in global mem.  */
+/* Manual lock - Exch. in global memory - coop. in global mem.  */
 template<class OP, class IN_T, class OUT_T>
 __global__ void
-exch_noShared_chunk_corp_kernel(IN_T  *d_img,
+exch_noShared_chunk_coop_kernel(IN_T  *d_img,
                                 OUT_T *d_his,
                                 int img_sz,
                                 int his_sz,
                                 int num_threads,
                                 int seq_chunk,
-                                int corp_lvl,
+                                int coop_lvl,
                                 volatile int *d_locks)
 {
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
-  int ghidx = (gid / corp_lvl) * his_sz;
+  int ghidx = (gid / coop_lvl) * his_sz;
 
   if(gid < num_threads) {
     int done, idx; OUT_T val;
@@ -1272,7 +1274,8 @@ exch_noShared_chunk_corp_kernel(IN_T  *d_img,
         if( atomicExch((int *)&d_locks[ghidx + idx], 1) == 0 ) {
           d_his[ghidx + idx] =
             OP::apply(d_his[ghidx + idx], val);
-          d_locks[ghidx + idx] = 0;
+          __threadfence(); // necessary if not atomicExch
+          atomicExch((int *)&d_locks[ghidx + idx], 0);
           done = 1;
         }
       }
@@ -1307,13 +1310,13 @@ exch_noShared_chunk_corp_kernel(IN_T  *d_img,
 
 template<class OP, class IN_T, class OUT_T>
 int
-exch_noShared_chunk_corp(IN_T  *h_img,
+exch_noShared_chunk_coop(IN_T  *h_img,
                          OUT_T *h_his,
                          int img_sz,
                          int his_sz,
                          int num_threads,
                          int seq_chunk,
-                         int corp_lvl,
+                         int coop_lvl,
                          int num_hists,
                          struct timeval *t_start,
                          struct timeval *t_end,
@@ -1371,10 +1374,10 @@ exch_noShared_chunk_corp(IN_T  *h_img,
   cudaThreadSynchronize();
   */
 
-  exch_noShared_chunk_corp_kernel<OP, IN_T, OUT_T>
+  exch_noShared_chunk_coop_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst>>>
     (d_img, d_his, img_sz, his_sz,
-     num_threads, seq_chunk, corp_lvl, d_locks);
+     num_threads, seq_chunk, coop_lvl, d_locks);
 
   cudaThreadSynchronize();
 
@@ -1401,16 +1404,16 @@ exch_noShared_chunk_corp(IN_T  *h_img,
 
 
 /* -- KERNEL ID: 33 -- */
-/* Manual lock - Exch. in shared memory - corp. in shared mem. */
+/* Manual lock - Exch. in shared memory - coop. in shared mem. */
 template<class OP, class IN_T, class OUT_T>
 __global__ void
-exch_shared_chunk_corp_kernel(IN_T  *d_img,
+exch_shared_chunk_coop_kernel(IN_T  *d_img,
                               OUT_T *d_his,
                               int img_sz,
                               int his_sz,
                               int num_threads,
                               int seq_chunk,
-                              int corp_lvl,
+                              int coop_lvl,
                               int num_hists,
                               int hists_per_block,
                               int init_chunk,
@@ -1419,7 +1422,7 @@ exch_shared_chunk_corp_kernel(IN_T  *d_img,
   // global thread id
   const unsigned int tid = threadIdx.x;
   const unsigned int gid = blockIdx.x * blockDim.x + tid;
-  int lhidx = (tid / corp_lvl) * his_sz;
+  int lhidx = (tid / coop_lvl) * his_sz;
   int ghidx = blockIdx.x * hists_per_block * his_sz;
   int his_block_sz = hists_per_block * his_sz;
 
@@ -1454,8 +1457,7 @@ exch_shared_chunk_corp_kernel(IN_T  *d_img,
         if( atomicExch((int *)&sh_lck[lhidx + idx], 1) == 0 ) {
           sh_his[lhidx + idx] =
             OP::apply(sh_his[lhidx + idx], val);
-          // seems to deadlock if not atomicExch
-          //sh_lck[lhidx + idx] = 0;
+          __threadfence();
           atomicExch((int *)&sh_lck[lhidx + idx], 0);
           done = 1;
         }
@@ -1474,19 +1476,19 @@ exch_shared_chunk_corp_kernel(IN_T  *d_img,
 
 template<class OP, class IN_T, class OUT_T>
 int
-exch_shared_chunk_corp(IN_T  *h_img,
+exch_shared_chunk_coop(IN_T  *h_img,
                        OUT_T *h_his,
                        int img_sz,
                        int his_sz,
                        int num_threads,
                        int seq_chunk,
-                       int corp_lvl,
+                       int coop_lvl,
                        int num_hists,
                        struct timeval *t_start,
                        struct timeval *t_end,
                        int PRINT_INFO)
 {
-  if(corp_lvl > BLOCK_SZ) {
+  if(coop_lvl > BLOCK_SZ) {
     printf("Error: cooporation level cannot exceed block size\n");
     return -1;
   }
@@ -1502,9 +1504,9 @@ exch_shared_chunk_corp(IN_T  *h_img,
                             (sh_mem_sz /
                              (his_mem_sz + lck_mem_sz)
                             ),
-                            (BLOCK_SZ / corp_lvl)
+                            (BLOCK_SZ / coop_lvl)
                             );
-  int thrds_per_block = hists_per_block * corp_lvl;
+  int thrds_per_block = hists_per_block * coop_lvl;
   int num_blocks = ceil(num_hists / (float)hists_per_block);
 
   // compute numbers needed for initialization and copy steps
@@ -1557,11 +1559,11 @@ exch_shared_chunk_corp(IN_T  *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  exch_shared_chunk_corp_kernel<OP, IN_T, OUT_T>
+  exch_shared_chunk_coop_kernel<OP, IN_T, OUT_T>
     <<<grid_dim_fst, block_dim_fst,
     (lck_mem_sz + his_mem_sz) * hists_per_block>>>
     (d_img, d_his, img_sz, his_sz,
-     num_threads, seq_chunk, corp_lvl, num_hists, hists_per_block,
+     num_threads, seq_chunk, coop_lvl, num_hists, hists_per_block,
      sh_chunk, sh_chunk_threads);
 
   cudaThreadSynchronize();
@@ -1593,13 +1595,13 @@ exch_shared_chunk_corp(IN_T  *h_img,
 /* Warp optimized - lock free */
 template<class OP, class T>
 __global__ void
-warp_shared_corp_kernel(T *d_img,
+warp_shared_coop_kernel(T *d_img,
                         T *d_his,
                         int img_sz,
                         int his_sz,
                         int num_threads,
                         int seq_chunk,
-                        int corp_lvl,
+                        int coop_lvl,
                         int num_hists,
                         int hists_per_block,
                         int init_chunk,
@@ -1608,7 +1610,7 @@ warp_shared_corp_kernel(T *d_img,
   // global thread id
   const unsigned int tid = threadIdx.x;
   const unsigned int gid = blockIdx.x * blockDim.x + tid;
-  //int hid_local  = tid / corp_lvl;
+  //int hid_local  = tid / coop_lvl;
   int h_start = blockIdx.x * hists_per_block * his_sz;
   int laneid = tid & (32 - 1);
   //  int warpid = tid >> 5;
@@ -1666,18 +1668,18 @@ warp_shared_corp_kernel(T *d_img,
 
 template<class OP, class T>
 void
-warp_shared_corp(int *h_img,
+warp_shared_coop(int *h_img,
                  int *h_his,
                  int img_sz,
                  int his_sz,
                  int num_threads,
                  int seq_chunk,
-                 int corp_lvl,
+                 int coop_lvl,
                  int num_hists,
                  struct timeval *t_start,
                  struct timeval *t_end)
 {
-  if(corp_lvl > 32) {
+  if(coop_lvl > 32) {
     printf("Error: cooporation level cannot exceed maximum"
            "number of warps in block\n");
     return;
@@ -1690,7 +1692,7 @@ warp_shared_corp(int *h_img,
   // histograms per block - maximum value is 1024
   int sh_mem_sz = 48 * 1024;
   int hists_per_block = min((sh_mem_sz / his_mem_sz), 32);
-  int thrds_per_block = 32 * corp_lvl; // warp size := 32
+  int thrds_per_block = 32 * coop_lvl; // warp size := 32
   int num_blocks = ceil(num_hists / (float)hists_per_block);
 
   // compute numbers needed for initialization and copy steps
@@ -1738,10 +1740,10 @@ warp_shared_corp(int *h_img,
   // execute kernel
   gettimeofday(t_start, NULL);
 
-  warp_shared_corp_kernel<OP, T>
+  warp_shared_coop_kernel<OP, T>
     <<<grid_dim_fst, block_dim_fst, his_mem_sz * hists_per_block>>>
     (d_img, d_his, img_sz, his_sz,
-     num_threads, seq_chunk, corp_lvl, num_hists, hists_per_block,
+     num_threads, seq_chunk, coop_lvl, num_hists, hists_per_block,
      sh_chunk, sh_chunk_threads);
 
   cudaThreadSynchronize();

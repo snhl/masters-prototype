@@ -7,7 +7,7 @@ RUNT_PATH  =runtimes
 
 DATA_SIZE  =10000000
 ITERATIONS =5
-CORP_LEVELS=1 4 16 64 256 1024 4096 16384 61440 # last is max threads
+COOP_LEVELS=1 4 16 64 256 1024 4096 16384 61440 # last is max threads
 HISTO_SIZES=16 64 256 1024 4096 16384 61440
 
 .PRECIOUS: $(RUNT_PATH)/hist-%.json hist-%-full.json $(DATA_PATH)/%-$(DATA_SIZE).txt
@@ -23,11 +23,11 @@ $(DATA_PATH)/%-$(DATA_SIZE).txt:
 $(RUNT_PATH)/hist-%.json: $(PGM) $(DATA_PATH)/%-$(DATA_SIZE).txt
 	@echo '=== Running experiment'
 	python experiment.py $(ITERATIONS) $* \
-		$(DATA_PATH)/$*-$(DATA_SIZE).txt $(CORP_LEVELS)
+		$(DATA_PATH)/$*-$(DATA_SIZE).txt $(COOP_LEVELS)
 
 hist-%.pdf hist-%-full.pdf: $(RUNT_PATH)/hist-%.json
 	@echo '=== Generating graphs'
-	python plot.py $* $(DATA_SIZE) $(CORP_LEVELS)
+	python plot.py $* $(DATA_SIZE) $(COOP_LEVELS)
 
 rmpdf:
 	rm -f hist-*-full.pdf hist-*.pdf

@@ -10,49 +10,76 @@ import matplotlib.pyplot as plt
 
 if len(sys.argv) < 4:
     print "Usage: python {0} <hist. size> <img. size> " \
-          "<list of corp. levels>".format(sys.argv[0])
+          "<list of coop. levels>".format(sys.argv[0])
     sys.exit()
 else:
     hist_sz = int(sys.argv[1])
     img_sz  = int(sys.argv[2])
-    corp_levels = map(int, sys.argv[3:])
+    coop_levels = map(int, sys.argv[3:])
+
+# Futhark runtimes
+with open("fut_times.json") as infile:
+    fut_json  = json.load(infile)
+    fut_times = fut_json['hist-reduce.fut']['datasets']
+
+# num. hists. -> coop. lvl.
+conversion = { 61350: 1,
+               15338: 4,
+               3835: 16,
+               959: 64,
+               240: 256,
+               60: 1024,
+               15: 4096,
+               4: 16384,
+               1: 61440,
+}
+
+# (hist. size, cooperation level, mean)
+fut_means = [ (int(name.split('-')[0]),
+               conversion[int(name.split('-')[1])],
+               float(np.mean(fut_times[name]['runtimes'])))
+              for name in fut_times
+]
+
+fut_ = [ (x[1], x[2]) for x in fut_means if x[0] == hist_sz ]
 
 with open("runtimes/hist-{0}.json".format(hist_sz)) as infile:
     runtimes = json.load(infile)
 
 colors = {
-    'AADD_NOSHARED_NOCHUNK_FULLCORP':  'darkblue',
-    'AADD_NOSHARED_CHUNK_FULLCORP':    'cyan',
-    'ACAS_NOSHARED_NOCHUNK_FULLCORP':  'red',
-    'ACAS_NOSHARED_CHUNK_FULLCORP':    'orange',
-    'AEXCH_NOSHARED_NOCHUNK_FULLCORP': 'green',
-    'AEXCH_NOSHARED_CHUNK_FULLCORP':   'lime',
-    'AADD_NOSHARED_CHUNK_CORP':  'darkblue',
-    'AADD_SHARED_CHUNK_CORP':    'cyan',
-    'ACAS_NOSHARED_CHUNK_CORP':  'red',
-    'ACAS_SHARED_CHUNK_CORP':    'orange',
-    'AEXCH_NOSHARED_CHUNK_CORP': 'green',
-    'AEXCH_SHARED_CHUNK_CORP':   'lime',
+    'AADD_NOSHARED_NOCHUNK_FULLCOOP':  'darkblue',
+    'AADD_NOSHARED_CHUNK_FULLCOOP':    'cyan',
+    'ACAS_NOSHARED_NOCHUNK_FULLCOOP':  'red',
+    'ACAS_NOSHARED_CHUNK_FULLCOOP':    'orange',
+    'AEXCH_NOSHARED_NOCHUNK_FULLCOOP': 'green',
+    'AEXCH_NOSHARED_CHUNK_FULLCOOP':   'lime',
+    'AADD_NOSHARED_CHUNK_COOP':  'darkblue',
+    'AADD_SHARED_CHUNK_COOP':    'cyan',
+    'ACAS_NOSHARED_CHUNK_COOP':  'red',
+    'ACAS_SHARED_CHUNK_COOP':    'orange',
+    'AEXCH_NOSHARED_CHUNK_COOP': 'green',
+    'AEXCH_SHARED_CHUNK_COOP':   'lime',
+    'FUTHARK REDUCTION': 'black',
 }
 
-# non-corp-varying kernels
+# non-coop-varying kernels
 non_varying_kernels = [
-    'AADD_NOSHARED_NOCHUNK_FULLCORP',
-    'AADD_NOSHARED_CHUNK_FULLCORP',
-    'ACAS_NOSHARED_NOCHUNK_FULLCORP',
-    'ACAS_NOSHARED_CHUNK_FULLCORP',
-    'AEXCH_NOSHARED_NOCHUNK_FULLCORP',
-    'AEXCH_NOSHARED_CHUNK_FULLCORP',
+    'AADD_NOSHARED_NOCHUNK_FULLCOOP',
+    'AADD_NOSHARED_CHUNK_FULLCOOP',
+    'ACAS_NOSHARED_NOCHUNK_FULLCOOP',
+    'ACAS_NOSHARED_CHUNK_FULLCOOP',
+    'AEXCH_NOSHARED_NOCHUNK_FULLCOOP',
+    'AEXCH_NOSHARED_CHUNK_FULLCOOP',
 ]
 
-# corp-varying kernels
+# coop-varying kernels
 varying_kernels = [
-    'AADD_NOSHARED_CHUNK_CORP',
-    'AADD_SHARED_CHUNK_CORP',
-    'ACAS_NOSHARED_CHUNK_CORP',
-    'ACAS_SHARED_CHUNK_CORP',
-    'AEXCH_NOSHARED_CHUNK_CORP',
-    'AEXCH_SHARED_CHUNK_CORP',
+    'AADD_NOSHARED_CHUNK_COOP',
+    'AADD_SHARED_CHUNK_COOP',
+    'ACAS_NOSHARED_CHUNK_COOP',
+    'ACAS_SHARED_CHUNK_COOP',
+    'AEXCH_NOSHARED_CHUNK_COOP',
+    'AEXCH_SHARED_CHUNK_COOP',
 ]
 
 non_varying_kernels = {
@@ -66,21 +93,21 @@ def sort_fst(xs):
     """Sorts a list of tuples according to the first element."""
     return sorted(xs, key=lambda pair: pair[0])
 
-def compute_means(kernel_name, runtimes):
-    """Returns a list of tuples containing corporation level
+def compute_means(runtimes):
+    """Returns a list of tuples containing cooporation level
     and mean runtime."""
-    tmp  = runtimes[kernel_name]
+#    tmp  = runtimes[kernel_name]
     tmp_ = [ (int(key), float(np.mean(val)))
-             for key, val in tmp.iteritems()
+             for key, val in runtimes.iteritems()
     ]
     return sort_fst(tmp_)
 
 def all_means(runtimes):
     """Returns a dictionary containing kernel names as keys
-    and a list of corp.lvl-mean-time tuples."""
+    and a list of coop.lvl-mean-time tuples."""
     tmp = {}
     for name in runtimes:
-        tmp[name] = compute_means(name, runtimes)
+        tmp[name] = compute_means(runtimes[name])
     return tmp
 
 ## do the graphs
@@ -109,28 +136,32 @@ def plot_all(inds, kernel_means, axis, width, space, ylim):
         tmp += _tmp
     return tmp
 
-# plot for corp-varying kernels
+# plot for coop-varying kernels
 ylim = 60000
 
 kernel_means = all_means(varying_kernels)
-space = 0.10
+kernel_means['FUTHARK REDUCTION'] = sort_fst(fut_)
+
+space = 0.25
 width = (1 - space) / len(kernel_means)
-indices = np.arange(1, len(corp_levels) + 1)
+indices = np.arange(1, len(coop_levels) + 1)
 fig, ax = plt.subplots()
+
+
 plots = plot_all(indices, kernel_means, ax, width, space, ylim)
 
-# add formula corporation level -- only if time allows
+# add formula cooporation level -- only if time allows
 #indices = np.append(indices, 1.5)
 
 lgd = ax.legend(loc='upper left', bbox_to_anchor=(0, -0.10))
 ax.set_xticks(indices)
-#ax.set_xticklabels(corp_levels + [1.5])
-ax.set_xticklabels(corp_levels)
-ax.set_xlabel('Corporation level')
+#ax.set_xticklabels(coop_levels + [1.5])
+ax.set_xticklabels(coop_levels)
+ax.set_xlabel('Cooperation level')
 
 ax.set_ylim([0, ylim])
 
-ax.set_ylabel('Runtime (ms)')
+ax.set_ylabel('Runtime ($\mu s$)')
 ax.tick_params('y', colors='k')
 ax.set_title('N:{0}, H:{1}'.format(img_sz, hist_sz))
 
@@ -141,15 +172,15 @@ hardware  = 61440
 threads0  = min(img_sz, hardware)
 seq_chunk = int(ceil(img_sz   / float(threads0)))
 threads1  = int(ceil(img_sz   / float(seq_chunk)))
-corp_lvl  = int(ceil(hist_sz  / float(seq_chunk)))
-num_hists = int(ceil(threads1 / float(corp_lvl)))
+coop_lvl  = int(ceil(hist_sz  / float(seq_chunk)))
+num_hists = int(ceil(threads1 / float(coop_lvl)))
 
 
 c1 = "Hardware:\nSeq. chunk:\nThreads:\n" \
-      "Corp. level:\nNum. hists:"
+      "Coop. level:\nNum. hists:"
 
 c2 = "{0}\n{1}\n{2}\n{3}\n{4}".format(
-    threads0, seq_chunk, threads1, corp_lvl, num_hists
+    threads0, seq_chunk, threads1, coop_lvl, num_hists
 )
 
 col1 = 0.675
@@ -165,9 +196,6 @@ plt.savefig('hist-{0}.pdf'.format(hist_sz),
 plt.close()
 
 
-#sys.exit()
-
-
 # plot for non-varying kernels
 ylim = 10000
 
@@ -181,11 +209,11 @@ plots = plot_all(indices, kernel_means, ax, width, space, ylim)
 lgd = ax.legend(loc='upper left', bbox_to_anchor=(0, -0.10))
 ax.set_xticks(indices)
 ax.set_xticklabels(['maximum'])
-ax.set_xlabel('Corporation level')
+ax.set_xlabel('Cooperation level')
 
 ax.set_ylim([0, ylim])
 
-ax.set_ylabel('Runtime (ms)')
+ax.set_ylabel('Runtime ($\mu s$)')
 ax.tick_params('y', colors='k')
 ax.set_title('N:{0}, H:{1}'.format(img_sz, hist_sz))
 

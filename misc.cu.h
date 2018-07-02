@@ -9,7 +9,7 @@
 #define NUM_THREADS(n)  min(n, HWD)
 
 #define SEQ_CHUNK(x, y)  ceil(x / (float)y)
-#define CORP_LEVEL(x, y) ceil(x / (float)y)
+#define COOP_LEVEL(x, y) ceil(x / (float)y)
 #define NUM_HISTOS(x, y) ceil(x / (float)y)
 
 #define BLOCK_X_DIM(x) (x < BLOCK_SZ ? x : BLOCK_SZ)
@@ -50,12 +50,12 @@ int timeval_subtract(struct timeval* result,
 
 /* Validate input */
 int validate_input(int argc, const char* argv[],
-                   int *his_sz, int *kernel, int *corp_lvl)
+                   int *his_sz, int *kernel, int *coop_lvl)
 {
   /* check number of arguments */
   if(argc != 5) {
     printf("Usage: "
-           "%s <kernel> <corp. level> <histo. size> "
+           "%s <kernel> <coop. level> <histo. size> "
            "<filename>\n",
            argv[0]);
     return 1;
@@ -66,9 +66,9 @@ int validate_input(int argc, const char* argv[],
     printf("Error: Failed to parse kernel type\n");
   }
 
-  /* parse corporation level */
-  if( sscanf(argv[2], "%i", corp_lvl ) != 1) {
-    printf("Error: Failed to parse corporation level\n");
+  /* parse cooporation level */
+  if( sscanf(argv[2], "%i", coop_lvl ) != 1) {
+    printf("Error: Failed to parse cooporation level\n");
   }
 
   /* parse histogram size */
