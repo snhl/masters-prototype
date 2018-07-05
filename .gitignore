@@ -1,0 +1,14 @@
+# binaries (and intermediate files)
+host
+reduce
+reduce.c
+
+# data
+data/
+runtimes/
+
+# pdfs
+*.pdf
+
+# old things
+old/

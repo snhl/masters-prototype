@@ -23,7 +23,7 @@ out_file = join(out_path, "hist-{0}.json".format(his_sz))
 
 # program to run
 pgm = "host"
-pgm_path   = "./../{0}".format(pgm)
+pgm_path   = "./{0}".format(pgm)
 
 fullcoop_kernels = {
     '10': 'AADD_NOSHARED_NOCHUNK_FULLCOOP',
@@ -58,7 +58,7 @@ for k in vary_coop_kernels:
         for clvl in coop_levels:
             for _ in range(iterations):
                 print '{0} {1} {2} {3} {4}'.format(
-                    pgm, k, clvl, his_sz, filename
+                    pgm_path, k, clvl, his_sz, filename
                 )
                 cmd  = [pgm_path, k, clvl, his_sz, filename]
                 try:
@@ -81,7 +81,7 @@ for k in fullcoop_kernels:
     with open(out_file, 'wb') as myfile:
         for _ in range(iterations):
             print '{0} {1} {2} {3} {4}'.format(
-                pgm, k, clvl, his_sz, filename
+                pgm_path, k, clvl, his_sz, filename
             )
             cmd  = [pgm_path, k, clvl, his_sz, filename]
             try:

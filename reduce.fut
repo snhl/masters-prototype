@@ -1,0 +1,71 @@
+import "futlib/array"
+-- ==
+-- input @ data/futhark/16-1.dat
+-- input @ data/futhark/16-4.dat
+-- input @ data/futhark/16-15.dat
+-- input @ data/futhark/16-60.dat
+-- input @ data/futhark/16-240.dat
+-- input @ data/futhark/16-959.dat
+-- input @ data/futhark/16-3835.dat
+-- input @ data/futhark/16-15338.dat
+-- input @ data/futhark/16-61350.dat
+--
+-- input @ data/futhark/64-1.dat
+-- input @ data/futhark/64-4.dat
+-- input @ data/futhark/64-15.dat
+-- input @ data/futhark/64-60.dat
+-- input @ data/futhark/64-240.dat
+-- input @ data/futhark/64-959.dat
+-- input @ data/futhark/64-3835.dat
+-- input @ data/futhark/64-15338.dat
+-- input @ data/futhark/64-61350.dat
+--
+-- input @ data/futhark/256-1.dat
+-- input @ data/futhark/256-4.dat
+-- input @ data/futhark/256-15.dat
+-- input @ data/futhark/256-60.dat
+-- input @ data/futhark/256-240.dat
+-- input @ data/futhark/256-959.dat
+-- input @ data/futhark/256-3835.dat
+-- input @ data/futhark/256-15338.dat
+-- input @ data/futhark/256-61350.dat
+--
+-- input @ data/futhark/1024-1.dat
+-- input @ data/futhark/1024-4.dat
+-- input @ data/futhark/1024-15.dat
+-- input @ data/futhark/1024-60.dat
+-- input @ data/futhark/1024-240.dat
+-- input @ data/futhark/1024-959.dat
+-- input @ data/futhark/1024-3835.dat
+-- input @ data/futhark/1024-15338.dat
+-- input @ data/futhark/1024-61350.dat
+--
+-- input @ data/futhark/4096-1.dat
+-- input @ data/futhark/4096-4.dat
+-- input @ data/futhark/4096-15.dat
+-- input @ data/futhark/4096-60.dat
+-- input @ data/futhark/4096-240.dat
+-- input @ data/futhark/4096-959.dat
+-- input @ data/futhark/4096-3835.dat
+-- input @ data/futhark/4096-15338.dat
+-- input @ data/futhark/4096-61350.dat
+--
+-- input @ data/futhark/16384-1.dat
+-- input @ data/futhark/16384-4.dat
+-- input @ data/futhark/16384-15.dat
+-- input @ data/futhark/16384-60.dat
+-- input @ data/futhark/16384-240.dat
+-- input @ data/futhark/16384-959.dat
+-- input @ data/futhark/16384-3835.dat
+-- input @ data/futhark/16384-15338.dat
+--
+-- input @ data/futhark/61440-1.dat
+-- input @ data/futhark/61440-4.dat
+-- input @ data/futhark/61440-15.dat
+-- input @ data/futhark/61440-60.dat
+-- input @ data/futhark/61440-240.dat
+-- input @ data/futhark/61440-959.dat
+-- input @ data/futhark/61440-3835.dat
+
+let main [H] (hists : [][H]i32) : [H]i32 =
+  map (\col -> reduce (+) 0 col) (transpose hists)

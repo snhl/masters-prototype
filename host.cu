@@ -68,7 +68,7 @@ int main(int argc, const char* argv[])
 
   /* check that data file exists */
   if( access(argv[4], F_OK) == -1 ) {
-    printf("Error: file '%s' does not exist\n", argv[2]);
+    printf("Error: file '%s' does not exist\n", argv[4]);
     return 2;
   }
 

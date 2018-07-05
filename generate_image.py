@@ -9,7 +9,7 @@ if len(sys.argv) != 3:
     sys.exit()
 
 # data path
-path = join(getcwd(), "data")
+path = join(getcwd(), "data/cuda")
 
 # parse cmd line arguments
 upper, img_sz = int(sys.argv[1]), int(sys.argv[2])
@@ -20,7 +20,7 @@ img = np.random.randint(low=lower, high=upper, size=img_sz)
 img = np.insert(img, 0, img_sz)
 
 # generate absolute path
-fname = '{0}-{1}.txt'.format(upper, img_sz)
+fname = '{0}-{1}.dat'.format(upper, img_sz)
 fname = join(path, fname)
 
 # sloooow - should probably generate data as it is outputted

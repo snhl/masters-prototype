@@ -3,6 +3,7 @@ import sys
 import numpy as np
 import matplotlib
 from math import ceil
+import os
 
 matplotlib.use('Agg')
 
@@ -18,9 +19,9 @@ else:
     coop_levels = map(int, sys.argv[3:])
 
 # Futhark runtimes
-with open("fut_times.json") as infile:
+with open("runtimes/fut_times.json") as infile:
     fut_json  = json.load(infile)
-    fut_times = fut_json['hist-reduce.fut']['datasets']
+    fut_times = fut_json['reduce.fut']['datasets']
 
 # num. hists. -> coop. lvl.
 conversion = { 61350: 1,
@@ -35,10 +36,19 @@ conversion = { 61350: 1,
 }
 
 # (hist. size, cooperation level, mean)
+def get_filename(fname):
+    return os.path.splitext(
+        os.path.basename(fname))[0]
+
+fut_times_new = {
+    get_filename(name) : fut_times[name]
+    for name in fut_times
+}
+
 fut_means = [ (int(name.split('-')[0]),
                conversion[int(name.split('-')[1])],
-               float(np.mean(fut_times[name]['runtimes'])))
-              for name in fut_times
+               float(np.mean(fut_times_new[name]['runtimes'])))
+              for name in fut_times_new
 ]
 
 fut_ = [ (x[1], x[2]) for x in fut_means if x[0] == hist_sz ]

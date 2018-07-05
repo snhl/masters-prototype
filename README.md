@@ -1,0 +1,167 @@
+# Prototyping for my masters's project
+
+This repository serves as the foundation for the code
+generation part of my work on implementing a general
+reduction operator in the
+[Futhark](https://github.com/diku-dk/futhark/)
+compiler. This is the files `host.cu`, `kernels.cu.h`, and
+`misc.cu.h`.
+
+Besides the CUDA prototypes it also contains a setup for
+replicating the performance tests presented in my thesis.
+
+
+## System requirements
+
+You will need:
+
+ * A working CUDA installation.
+
+ * A working Futhark installation, i.e., `futhark-opencl`,
+   `futhark-dataset`, and `futhark-bench`. (At the time of
+   writing, it required a working OpenCL installation and
+   the Stack build tool.) See the installation instructions
+   [here](https://futhark.readthedocs.io/en/latest/installation.html).
+
+ * A working Python 2.7 installation (other versions might
+   work too), with `Numpy` and `Matplotlib` installed.
+
+
+## Compile and run binaries only
+
+### CUDA
+
+Make sure you are in the root Git directory (where this file
+is located) and type `make host`. This will create an
+executable named `host`. If you execute it without arguments
+it will show which arguments it takes:
+
+```
+# ./host
+Usage: ./host <kernel> <coop. level> <histo. size> <filename>
+```
+
+That is, it takes:
+
+1. `<kernel>`: A kernel identifier. It can be one of the
+following:
+
+    . `[10|20|30]`: One histogram in global memory and one pixel per
+    thread. That is, full cooperation and no chunking.
+
+    . `[11|21|31]`: One histogram in global memory and chunking.
+
+    . `[12|22|32]`: Multiple histograms in global memory and chunking.
+
+    . `[13|23|33]`: Multiple histograms in both shared on global
+    memory, and chunking.
+
+    where versions prefixed by `1` are implemented using
+    `atomicAdd`, versions prefixed by `2` are implemented by
+    using `atomicCAS`, and versions prefixed by `3` are
+    implemented by using `atomicExch`. All methods implement
+    a simple addition operation.
+
+2. `<coop. level>`: How many threads should cooperate on one
+histogram. If this is set to zero, the program will try and
+compute a cooperation level for you. (We aim at computing
+the optimal one.)
+
+3. `<histo. size>`: Number of bins per histogram.
+
+4. `<filename>`: The (relative or absolute) path, including
+the filename, to the input file that you want to compute a
+histogram over. See [Generating data](#generating-data) for
+how to produce data files with the correct layout.
+
+Note, that the runtimes reported are without the final reduction
+phase, where intermediate histograms are combined.
+
+### Futhark
+
+`make reduce` will compile `reduce.fut` using the
+`futhark-opencl` compiler.
+
+
+## Generating data
+
+Before creating any data you should create the `data/cuda`
+and `data/futhark` directories. If you are in the project
+root directory then type `mkdir -p
+data/{cuda,futhark}`. Note, that generating Futhark data
+takes like forever - you can safely go get some coffee.
+
+
+### CUDA data
+
+If you want to test the CUDA prototypes on a single data set
+at a time, you should create the data first by using
+`generate_image.py`. It will generate a file containing
+`<image size>` integers ranging from `0` to `<upper limit>`
+both inclusive.
+
+If you execute it without arguments it will show which
+arguments it takes:
+
+```
+# python generate_image.py
+Usage: python generate_image.py <upper limit> <image size>
+```
+
+That is, it takes:
+
+ 1. `<upper limit>`: The inclusive upper bound. This should
+ be equal to the histogram size that you want to test, such
+ that you get uniformly distributed data over the histogram
+ size.
+
+ 2. `<image size>`: The number of integers to create.
+
+This will create the data files in the `data/cuda`
+directory.
+
+
+### Futhark data
+
+Run `./generate_fut_dat.sh` and futhark data files will be
+generated in the `data/futhark` directory. Values are
+hardcoded in the script and if they are changed, values in
+other files should be changed manually as well.
+
+Note, that we are generating some huge files and that it may
+take forever (or at least it feels like that).
+
+
+## Running the full performance test setup
+
+The setup requires that the `data/cuda` and `data/futhark`
+directories are present, and that the latter is populated
+manually with data files (see [Futhark
+data](#futhark-data)). Furthermore, a directory called
+`runtimes/` should also be created. Now you are ready to run
+`make plot` which will then take care of creating the CUDA
+data files (but not the Futhark data files!), compiling the
+sources, running the performance tests, and creating graphs
+presenting the data. The intermediate json data files
+containing the runtime information is placed in the
+`runtime/` directory.
+
+Note, that the runtimes reported by the CUDA program are
+without the final reduction phase, where intermediate
+histograms are combined. This is due to the facts, that
+writing an effective reduction in CUDA is non-trivial, that
+it is not the scope of my thesis, and that the reduction
+will by generated by the Futhark compiler anyway.
+
+Beware that the setup is hardcoded for a specific range of
+histogram sizes and cooperation levels. This is partly due
+to the way the `futhark-bench` and `futhark-dataset` works,
+and the problem structure.
+
+The setup will run each CUDA kernel `5` times for each
+combination of cooperation level and histogram size. These
+values are set in `Makefile` but if they are changed, other
+files must also be changed manually (so be careful).
+Runtimes for the reduction phase will be computed by by
+running `futhark-bench` on `reduce.fut`. Each input file
+will be run `5` times also.
