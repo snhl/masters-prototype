@@ -30,10 +30,12 @@
 #define AEXCH_NOSHARED_CHUNK_COOP       32
 #define AEXCH_SHARED_CHUNK_COOP         33
 
+#define WARP_OPTIMISED                  43
+
 // debugging
-#define PRINT_INFO     0
+#define PRINT_INFO     1
 #define PRINT_SEQ_TIME 0
-#define PRINT_INVALIDS 0
+#define PRINT_INVALIDS 1
 
 // runtime
 #define MICROS 1 // 0 will give runtime in millisecs.
@@ -44,7 +46,6 @@
 #define IN_T  int
 #define OUT_T int
 #define MY_OP Add<OUT_T>
-#define SHARED_MEMORY_SIZE (48 * 1024) // default is 48KB
 
 int main(int argc, const char* argv[])
 {
@@ -58,7 +59,7 @@ int main(int argc, const char* argv[])
   /* abort as soon as possible */
   unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
   int restrict = (kernel == 13 || kernel == 23 || kernel == 33);
-  if(restrict && (his_mem_sz > SHARED_MEMORY_SIZE)) {
+  if(restrict && (his_mem_sz > SH_MEM_SZ)) {
     printf("Error: Histogram exceeds shared memory size\n");
     return -1;
   } else if(restrict && coop_lvl_tmp > BLOCK_SZ) {
@@ -114,9 +115,9 @@ int main(int argc, const char* argv[])
 
   /* compute seq. chunk, coop. level and num. histos */
   // 1) N number of threads.
+  int num_threads = NUM_THREADS(img_sz);
 
   // 2) varying coop. level
-  int num_threads = NUM_THREADS(img_sz);
   int seq_chunk   = SEQ_CHUNK(img_sz, num_threads);
   num_threads = ceil(img_sz / (float)seq_chunk);
 
@@ -181,14 +182,14 @@ int main(int argc, const char* argv[])
     printf("Kernel: AADD_NOSHARED_CHUNK_COOP\n");
     res = aadd_noShared_chunk_coop<IN_T>
       (h_img, h_his, img_sz, his_sz,
-       num_threads, seq_chunk, coop_lvl, num_hists,
+       num_threads, coop_lvl, num_hists,
        &t_start, &t_end, PRINT_INFO);
     break;
   case AADD_SHARED_CHUNK_COOP: // 13
     printf("Kernel: AADD_SHARED_CHUNK_COOP\n");
     res = aadd_shared_chunk_coop<IN_T>
       (h_img, h_his, img_sz, his_sz,
-       num_threads, seq_chunk, coop_lvl, num_hists,
+       num_threads, coop_lvl, num_hists,
        &t_start, &t_end, PRINT_INFO);
     break;
 
@@ -203,21 +204,21 @@ int main(int argc, const char* argv[])
   case ACAS_NOSHARED_CHUNK_FULLCOOP: // 21
     printf("Kernel: ACAS_NOSHARED_CHUNK_FULLCOOP\n");
     res = CAS_noShared_chunk_fullCoop<MY_OP, IN_T, OUT_T>
-      (h_img, h_his, img_sz, his_sz, num_threads, seq_chunk,
+      (h_img, h_his, img_sz, his_sz, num_threads,
        &t_start, &t_end, PRINT_INFO);
     break;
   case ACAS_NOSHARED_CHUNK_COOP: // 22
     printf("Kernel: ACAS_NOSHARED_CHUNK_COOP\n");
     res = CAS_noShared_chunk_coop<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz,
-       num_threads, seq_chunk, coop_lvl, num_hists,
+       num_threads, coop_lvl, num_hists,
        &t_start, &t_end, PRINT_INFO);
     break;
   case ACAS_SHARED_CHUNK_COOP: // 23
     printf("Kernel: ACAS_SHARED_CHUNK_COOP\n");
     res = CAS_shared_chunk_coop<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz,
-       num_threads, seq_chunk, coop_lvl, num_hists,
+       num_threads, coop_lvl, num_hists,
        &t_start, &t_end, PRINT_INFO);
     break;
 
@@ -249,26 +250,14 @@ int main(int argc, const char* argv[])
        &t_start, &t_end, PRINT_INFO);
     break;
 
-    /* There should be only one warp version */
-    /*
-  case WARP_SHARED_COOP:
-    printf("Kernel: WARP_SHARED_COOP\n");
-    warp_shared_coop<Add<int>, int>
+    /* No locking - warp optimised (using ??) */
+  case WARP_OPTIMISED: // 43
+    printf("Kernel: WARP_OPTIMISED\n");
+    res = warp_optimised<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz,
-       num_threads, seq_chunk, coop_lvl, num_hists,
-       &t_start, &t_end);
+       num_threads, coop_lvl, num_hists,
+       &t_start, &t_end, PRINT_INFO);
     break;
-  case WARP_OPTIMIZED:
-    printf("Kernel: WARP_SHARED_COOP_0\n");
-    warp_shared_coop_0<Add<int>, int>
-      (h_img, h_his, img_sz, his_sz, &t_start, &t_end);
-    break;
-  case WARP_OPTIMIZED_DBL:
-    printf("Kernel: WARP_SHARED_COOP_1\n");
-    warp_shared_coop_1<Add<int>, int>
-      (h_img, h_his, img_sz, his_sz, &t_start, &t_end);
-    break;
-    */
   }
 
   if(res != 0) {
