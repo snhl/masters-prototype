@@ -28,18 +28,20 @@ int gpuAssert(cudaError_t code)
 }
 
 /* struct for holding an index and a value */
+template<class T>
 struct indval {
   int index;
-  int value;
+  T value;
 };
 
 /* index function */
+template<class T>
 __device__ __host__ inline
-struct indval
-f(int pixel, int his_sz)
+struct indval<T>
+f(T pixel, int his_sz)
 {
-  struct indval iv;
-  iv.index = pixel % his_sz;
+  struct indval<T> iv;
+  iv.index = ((int)pixel) % his_sz;
   iv.value = pixel;
   return iv;
 }
@@ -59,9 +61,9 @@ scatter_seq(IN_T  *img,
   /* scatter */
   for(int i=0; i < img_sz; i ++) {
     int idx; OUT_T val;
-    struct indval iv;
+    struct indval<OUT_T> iv;
 
-    iv = f(img[i], his_sz);
+    iv = f<OUT_T>(img[i], his_sz);
     idx = iv.index;
     val = iv.value;
     his[idx] = OP::apply(his[idx], val);
@@ -122,7 +124,7 @@ aadd_noShared_noChunk_fullCoop_kernel(T *d_img,
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
   if(gid < img_sz) {
-    struct indval iv = f(d_img[gid], his_sz);
+    struct indval<T> iv = f<T>(d_img[gid], his_sz);
     int idx = iv.index;
     int val = iv.value;
     atomicAdd(&d_his[idx], val);
@@ -196,7 +198,7 @@ aadd_noShared_chunk_fullCoop_kernel(T *d_img,
 
   if(gid < num_threads) {
     for(int i=gid; i<img_sz; i+=num_threads) {
-        struct indval iv = f(d_img[i], his_sz);
+        struct indval<T> iv = f<T>(d_img[i], his_sz);
         atomicAdd(&d_his[iv.index], iv.value);
     }
   }
@@ -273,7 +275,7 @@ aadd_noShared_chunk_coop_kernel(T *d_img,
   // if-stm could be avoided if we only launch num_threads threads
   if(gid < num_threads) {
     for(int i=gid; i<img_sz; i+=num_threads) {
-        struct indval iv = f(d_img[i], his_sz);
+        struct indval<T> iv = f<T>(d_img[i], his_sz);
         atomicAdd(&d_his[ghidx + iv.index], iv.value);
     }
   }
@@ -393,7 +395,7 @@ aadd_shared_chunk_coop_kernel(T *d_img,
   // compute local histograms
   if(gid < num_threads) {
     for(int i=gid; i<img_sz; i+=num_threads) {
-        struct indval iv = f(d_img[i], his_sz);
+        struct indval<T> iv = f<T>(d_img[i], his_sz);
         atomicAdd(&sh_his[lhid + iv.index],iv.value);
     }
   }
@@ -503,9 +505,9 @@ CAS_noShared_noChunk_fullCoop_kernel(IN_T  *d_img,
 
   if(gid < img_sz) {
     int idx; OUT_T val;
-    struct indval iv;
+    struct indval<OUT_T> iv;
 
-    iv = f(d_img[gid], his_sz);
+    iv = f<OUT_T>(d_img[gid], his_sz);
     idx = iv.index;
     val = iv.value;
     OUT_T old = d_his[idx];
@@ -586,10 +588,10 @@ CAS_noShared_chunk_fullCoop_kernel(IN_T *d_img,
 
   if(gid < num_threads) {
     int idx; OUT_T val;
-    struct indval iv;
+    struct indval<OUT_T> iv;
 
     for(int i=gid; i<img_sz; i+=num_threads) {
-      iv = f(d_img[i], his_sz);
+      iv = f<OUT_T>(d_img[i], his_sz);
       idx = iv.index;
       val = iv.value;
 
@@ -674,10 +676,10 @@ CAS_noShared_chunk_coop_kernel(IN_T  *d_img,
 
   if(gid < num_threads) {
     int idx; OUT_T val;
-    struct indval iv;
+    struct indval<OUT_T> iv;
 
     for(int i=gid; i<img_sz; i+=num_threads) {
-      iv = f(d_img[i], his_sz);
+      iv = f<OUT_T>(d_img[i], his_sz);
       idx = iv.index;
       val = iv.value;
 
@@ -807,9 +809,9 @@ CAS_shared_chunk_coop_kernel(IN_T  *d_img,
   if(gid < num_threads) {
     for(int i=gid; i<img_sz; i+=num_threads) {
       int idx; OUT_T val;
-      struct indval iv;
+      struct indval<OUT_T> iv;
 
-      iv = f(d_img[i], his_sz);
+      iv = f<OUT_T>(d_img[i], his_sz);
       idx = iv.index;
       val = iv.value;
       OUT_T old = sh_his[lhidx + idx];
@@ -936,13 +938,12 @@ exch_noShared_noChunk_fullCoop_kernel(IN_T  *d_img,
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
   printf("0 - %d\n", gid);
 
-  /*
   int done, idx; OUT_T val;
-  struct indval iv;
+  struct indval<OUT_T> iv;
 
   if(gid < img_sz) {
     done = 0;
-    iv = f(d_img[gid], his_sz);
+    iv = f<OUT_T>(d_img[gid], his_sz);
     idx = iv.index;
     val = iv.value;
   } else {
@@ -957,18 +958,15 @@ exch_noShared_noChunk_fullCoop_kernel(IN_T  *d_img,
       done = 1;
     }
   }
-  */
 
-  /* Why doesn't it run as the version above?
-   * Not sure if this version is running at all (it seems to do). */
-
-  int done, idx; OUT_T val;
-  struct indval iv;
+  /* This causes intra-warp lock-contending and deadlocks.*/
+  /*
+  int done, idx; OUT_T val; struct indval iv;
 
   if(gid < img_sz) {
     printf("0 - %d\n", gid);
     done = 0;
-    iv = f(d_img[gid], his_sz);
+    iv = f<OUT_T>(d_img[gid], his_sz);
     idx = iv.index;
     val = iv.value;
 
@@ -983,7 +981,7 @@ exch_noShared_noChunk_fullCoop_kernel(IN_T  *d_img,
       }
     }
   }
-
+  */
 }
 
 template<class OP, class IN_T, class OUT_T>
@@ -1075,11 +1073,11 @@ exch_noShared_chunk_fullCoop_kernel(OUT_T *d_img,
   if(gid < num_threads) {
     for(int i=0; i<seq_chunk; i++) {
       int done, idx; OUT_T val;
-      struct indval iv;
+      struct indval<OUT_T> iv;
 
       if(gid + i * num_threads < img_sz) {
         done = 0;
-        iv = f(d_img[gid + i * num_threads], his_sz);
+        iv = f<OUT_T>(d_img[gid + i * num_threads], his_sz);
         idx = iv.index;
         val = iv.value;
       } else {
@@ -1191,9 +1189,9 @@ exch_noShared_chunk_coop_kernel(IN_T  *d_img,
 
     for(int i=0; i<seq_chunk; i++) {
       if(gid + i * num_threads < img_sz) {
-        struct indval iv;
+        struct indval<OUT_T> iv;
         done = 0;
-        iv = f(d_img[gid + i * num_threads], his_sz);
+        iv = f<OUT_T>(d_img[gid + i * num_threads], his_sz);
         idx = iv.index;
         val = iv.value;
       } else {
@@ -1348,9 +1346,9 @@ exch_shared_chunk_coop_kernel(IN_T  *d_img,
     int done, idx; OUT_T val;
     for(int i=0; i<seq_chunk; i++) {
       if(gid + i * num_threads < img_sz) {
-        struct indval iv;
+        struct indval<OUT_T> iv;
         done = 0;
-        iv = f(d_img[gid + i * num_threads], his_sz);
+        iv = f<OUT_T>(d_img[gid + i * num_threads], his_sz);
         idx = iv.index;
         val = iv.value;
       } else {
@@ -1506,7 +1504,7 @@ warp_optimised_kernel(IN_T  *d_img,
   // compute local histograms
   if(gid < num_threads) {
     for(int i=gid; i<img_sz; i+=num_threads) {
-      struct indval iv = f(d_img[i], his_sz);
+      struct indval<OUT_T> iv = f<OUT_T>(d_img[i], his_sz);
       atomicAdd(&sh_his[lhid + iv.index], iv.value);
     }
   }
@@ -1622,7 +1620,7 @@ noAtomic_noShared_kernel(IN_T *d_img,
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
   if(gid < img_sz) {
-    struct indval iv = f(d_img[gid], his_sz);
+    struct indval<OUT_T> iv = f<OUT_T>(d_img[gid], his_sz);
     int idx = iv.index;
     int val = iv.value;
     d_his[idx] = OP::apply(d_his[idx], val);
@@ -1680,7 +1678,7 @@ scatter_atomicUpdate(T *d_img, T *d_his, int img_sz, int his_sz)
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
   if(gid < img_sz) {
-    struct indval iv = f(d_img[gid], his_sz);
+    struct indval<T> iv = f<T>(d_img[gid], his_sz);
     int idx = iv.index;
     int val = iv.value;
     atomicExch(&d_img[idx], val);

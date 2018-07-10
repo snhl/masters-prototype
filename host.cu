@@ -33,9 +33,9 @@
 #define WARP_OPTIMISED                  43
 
 // debugging
-#define PRINT_INFO     1
+#define PRINT_INFO     0
 #define PRINT_SEQ_TIME 0
-#define PRINT_INVALIDS 1
+#define PRINT_INVALIDS 0
 
 // runtime
 #define MICROS 1 // 0 will give runtime in millisecs.
