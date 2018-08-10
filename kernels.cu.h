@@ -27,7 +27,7 @@ int gpuAssert(cudaError_t code)
   return 0;
 }
 
-/* struct for holding an index and a value */
+/* struct for index-value pair */
 template<class T>
 struct indval {
   int index;
@@ -92,7 +92,6 @@ reduce_kernel(T *d_his,
     d_res[gid] = sum;
   }
 }
-/* Common reduction kernel */
 
 /* Common initialization kernel */
 template<class OP, class OUT_T>
@@ -110,7 +109,6 @@ initialization_kernel(OUT_T *d_his,
     }
   }
 }
-/* Common initialization kernel */
 
 /* -- KERNEL ID: 10 --  */
 /* Atomic add in global memory - one global histogram */
@@ -936,7 +934,6 @@ exch_noShared_noChunk_fullCoop_kernel(IN_T  *d_img,
                                       int his_sz)
 {
   const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
-  printf("0 - %d\n", gid);
 
   int done, idx; OUT_T val;
   struct indval<OUT_T> iv;
@@ -958,31 +955,28 @@ exch_noShared_noChunk_fullCoop_kernel(IN_T  *d_img,
       done = 1;
     }
   }
+}
 
   /* This causes intra-warp lock-contending and deadlocks.*/
   /*
   int done, idx; OUT_T val; struct indval iv;
 
   if(gid < img_sz) {
-    printf("0 - %d\n", gid);
     done = 0;
     iv = f<OUT_T>(d_img[gid], his_sz);
     idx = iv.index;
     val = iv.value;
 
     while(!done) {
-      printf("1 - %d\n", gid);
       if( atomicExch((int *)&locks[idx], 1) == 0 ) {
         d_his[idx] = OP::apply(d_his[idx], val);
         __threadfence();
         atomicExch((int *)&locks[idx], 0);
         done = 1;
-        printf("2 - %d\n", gid);
       }
     }
   }
   */
-}
 
 template<class OP, class IN_T, class OUT_T>
 int
@@ -1475,214 +1469,5 @@ exch_shared_chunk_coop(IN_T  *h_img,
 }
 /* -- KERNEL ID: 33 -- */
 
-
-
-/* -- KERNEL ID: 43 -- */
-/* Warp optimized */
-template<class OP, class IN_T, class OUT_T>
-__global__ void
-warp_optimised_kernel(IN_T  *d_img,
-                      OUT_T *d_his,
-                      int img_sz,
-                      int his_sz,
-                      int num_threads,
-                      int hists_per_block)
-{
-  const unsigned int tid = threadIdx.x;
-  const unsigned int gid = blockIdx.x * blockDim.x + tid;
-  int his_block_sz = hists_per_block * his_sz;
-  int lhid = (tid % WARP_SZ) * his_sz;
-  int ghid = blockIdx.x * hists_per_block * his_sz;
-
-  // initialize local histograms
-  extern __shared__ OUT_T sh_his[];
-  for(int i=tid; i<his_block_sz; i+=blockDim.x) {
-    sh_his[i] = OP::identity();
-  }
-  __syncthreads();
-
-  // compute local histograms
-  if(gid < num_threads) {
-    for(int i=gid; i<img_sz; i+=num_threads) {
-      struct indval<OUT_T> iv = f<OUT_T>(d_img[i], his_sz);
-      atomicAdd(&sh_his[lhid + iv.index], iv.value);
-    }
-  }
-  __syncthreads();
-
-  // copy local histograms to global memory
-  for(int i=tid; i<his_block_sz; i+=blockDim.x) {
-    d_his[ghid + i] = sh_his[i];
-  }
-}
-
-
-template<class OP, class IN_T, class OUT_T>
-int
-warp_optimised(IN_T  *h_img,
-               OUT_T *h_his,
-               int img_sz,
-               int his_sz,
-               int num_threads,
-               int coop_lvl,
-               int num_hists,
-               struct timeval *t_start,
-               struct timeval *t_end,
-               int PRINT_INFO)
-{
-  if(coop_lvl > WARP_SZ) {
-    printf("Error: cooperation level cannot exceed warp size\n");
-    return -1;
-  }
-
-  // compute image and histogram memory usage
-  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
-  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
-
-  // histograms per block -- maximum is WARP_SIZE
-  int hists_per_block = min((SH_MEM_SZ / his_mem_sz), 32);
-  int thrds_per_block = hists_per_block * coop_lvl;
-  int num_blocks = ceil(num_hists / (float)hists_per_block);
-
-  if(PRINT_INFO) {
-    printf("Histograms per block: %d\n", hists_per_block);
-    printf("Threads per block: %d\n", thrds_per_block);
-    printf("Number of blocks: %d\n", num_blocks);
-  }
-
-  // d_his contains all histograms from shared memory
-  IN_T *d_img; OUT_T *d_his, *d_res;
-  cudaMalloc((void **)&d_img, img_mem_sz);
-  cudaMalloc((void **)&d_his,
-             his_mem_sz * num_blocks * hists_per_block);
-  cudaMalloc((void **)&d_res, his_mem_sz);
-  cudaMemcpy(d_img, h_img, img_mem_sz, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_his, h_his, his_mem_sz, cudaMemcpyHostToDevice);
-
-  // compute grid and block dimensions
-  // first kernel
-  dim3 grid_dim_fst (num_blocks, 1, 1);
-  dim3 block_dim_fst(thrds_per_block, 1, 1);
-  // second kernel
-  dim3 grid_dim_snd (GRID_X_DIM (his_sz), 1, 1);
-  dim3 block_dim_snd(BLOCK_X_DIM(his_sz), 1, 1);
-
-  if(PRINT_INFO) {
-    printf("First - grid: %d\n", grid_dim_fst.x);
-    printf("First - block: %d\n", block_dim_fst.x);
-    printf("Second - grid: %d\n", grid_dim_snd.x);
-    printf("Second - block: %d\n", block_dim_snd.x);
-  }
-
-  // execute kernel
-  gettimeofday(t_start, NULL);
-
-  warp_optimised_kernel<OP, IN_T, OUT_T>
-    <<<grid_dim_fst, block_dim_fst, 32 * his_mem_sz>>>
-    (d_img, d_his, img_sz, his_sz, num_threads, hists_per_block);
-
-  cudaThreadSynchronize();
-
-  gettimeofday(t_end, NULL); // do not time reduction
-
-  reduce_kernel<OP, OUT_T>
-    <<<grid_dim_snd, block_dim_snd>>>
-    (d_his, d_res, img_sz, his_sz, num_blocks * hists_per_block);
-
-  cudaThreadSynchronize();
-
-  int res = gpuAssert( cudaPeekAtLastError() );
-
-  // copy result from device to host memory
-  cudaMemcpy(h_his, d_res, his_mem_sz, cudaMemcpyDeviceToHost);
-
-  // free memory
-  cudaFree(d_img); cudaFree(d_his); cudaFree(d_res);
-
-  return res;
-}
-/* -- 4 -- */
-/* Warp optimized - lock-free */
-
-
-
-
-
-
-/* Indeterministic in global memory */
-template<class OP, class IN_T, class OUT_T>
-__global__ void
-noAtomic_noShared_kernel(IN_T *d_img,
-                         OUT_T* d_his,
-                         int img_sz,
-                         int his_sz)
-{
-  const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
-
-  if(gid < img_sz) {
-    struct indval<OUT_T> iv = f<OUT_T>(d_img[gid], his_sz);
-    int idx = iv.index;
-    int val = iv.value;
-    d_his[idx] = OP::apply(d_his[idx], val);
-  }
-}
-
-template<class OP, class IN_T, class OUT_T>
-void noAtomic_noShared(IN_T *h_img,
-                       OUT_T *h_his,
-                       int img_sz,
-                       int his_sz,
-                       struct timeval *t_start,
-                       struct timeval *t_end)
-{
-  // allocate device memory
-  unsigned int img_mem_sz = img_sz * sizeof(IN_T);
-  unsigned int his_mem_sz = his_sz * sizeof(OUT_T);
-
-  int *d_img, *d_his;
-  cudaMalloc((void **)&d_img, img_mem_sz);
-  cudaMalloc((void **)&d_his, his_mem_sz);
-  cudaMemcpy(d_img, h_img, img_mem_sz, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_his, h_his, his_mem_sz, cudaMemcpyHostToDevice);
-
-  // compute grid and block dimensions
-  dim3 grid_dim (GRID_X_DIM (img_sz), 1, 1);
-  dim3 block_dim(BLOCK_X_DIM(img_sz), 1, 1);
-
-  // execute kernel
-  gettimeofday(t_start, NULL);
-
-  noAtomic_noShared_kernel<OP, IN_T, OUT_T>
-    <<<grid_dim, block_dim>>>
-    (d_img, d_his, img_sz, his_sz);
-
-  cudaThreadSynchronize();
-
-  gettimeofday(t_end, NULL);
-
-  // copy result from device to host memory
-  cudaMemcpy(h_his, d_his, his_mem_sz, cudaMemcpyDeviceToHost);
-
-  // free memory
-  cudaFree(d_img); cudaFree(d_his);
-}
-/* Indeterministic in global memory */
-
-
-
-/* Atomic update - i.e., the non-combining case (non-deterministic) */
-template<class T>
-__global__ void
-scatter_atomicUpdate(T *d_img, T *d_his, int img_sz, int his_sz)
-{
-  const unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
-
-  if(gid < img_sz) {
-    struct indval<T> iv = f<T>(d_img[gid], his_sz);
-    int idx = iv.index;
-    int val = iv.value;
-    atomicExch(&d_img[idx], val);
-  }
-}
 
 #endif // SCATTER_KER

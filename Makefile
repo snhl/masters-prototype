@@ -3,10 +3,10 @@ NVCC=nvcc
 # compute_20 and (minimum supported cc).
 # -arch=compute_35 -code=sm_35 or just -arch=sm_35
 #NVCC_FLAGS:= -arch=compute_20 -code=sm_35 -x cu -Wno-deprecated-gpu-targets
-NVCC_FLAGS:= -x cu -Wno-deprecated-gpu-targets
-C_OPTIONS:=-O3 -Wall -Werror -Wunused
-C_FLAGS:= $(foreach option, $(C_OPTIONS), --compiler-options $(option))
-LIBS=-lm
+NVCC_FLAGS := -x cu -Wno-deprecated-gpu-targets
+C_OPTIONS := -Wall -Wextra -Werror -O3
+C_FLAGS := $(foreach option, $(C_OPTIONS), --compiler-options $(option))
+LIBS := -lm
 
 REQS=kernels.cu.h misc.cu.h
 CU_FILE=host

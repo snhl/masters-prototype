@@ -13,8 +13,6 @@
  * x2: Cooporation in global memory.   Chunking.
  * x3: Coop. in sh. and glob. memory.  Chunking.
  */
-#define NOATOMIC_NOSHARED  0 // non-deterministic - for completeness
-
 #define AADD_NOSHARED_NOCHUNK_FULLCOOP  10
 #define AADD_NOSHARED_CHUNK_FULLCOOP    11
 #define AADD_NOSHARED_CHUNK_COOP        12
@@ -29,8 +27,6 @@
 #define AEXCH_NOSHARED_CHUNK_FULLCOOP   31
 #define AEXCH_NOSHARED_CHUNK_COOP       32
 #define AEXCH_SHARED_CHUNK_COOP         33
-
-#define WARP_OPTIMISED                  43
 
 // debugging
 #define PRINT_INFO     0
@@ -132,7 +128,7 @@ int main(int argc, const char* argv[])
   int num_hists   = NUM_HISTOS(num_threads, coop_lvl);
 
   if(PRINT_INFO) {
-    printf("== Cosmin's formulas ==\n");
+    printf("== Heuristic formulas ==\n");
     if(kernel == 10 || kernel == 20 || kernel == 30) {
       printf("Number of threads:    %d\n", img_sz);
       printf("Sequential chunk:     %d\n", 1);
@@ -158,13 +154,6 @@ int main(int argc, const char* argv[])
   struct timeval t_start, t_end, t_diff;
 
   switch(kernel) {
-    /* Indeterministic - should never be used */
-  case NOATOMIC_NOSHARED:
-    printf("Kernel: NOATOMIC_NOSHARED\n");
-    noAtomic_noShared<MY_OP, IN_T, OUT_T>
-      (h_img, h_his, img_sz, his_sz, &t_start, &t_end);
-    break;
-
     /* Atomic add */
   case AADD_NOSHARED_NOCHUNK_FULLCOOP: // 10
     printf("Kernel: AADD_NOSHARED_NOCHUNK_FULLCOOP\n");
@@ -247,15 +236,6 @@ int main(int argc, const char* argv[])
     res = exch_shared_chunk_coop<MY_OP, IN_T, OUT_T>
       (h_img, h_his, img_sz, his_sz,
        num_threads, seq_chunk, coop_lvl, num_hists,
-       &t_start, &t_end, PRINT_INFO);
-    break;
-
-    /* No locking - warp optimised (using ??) */
-  case WARP_OPTIMISED: // 43
-    printf("Kernel: WARP_OPTIMISED\n");
-    res = warp_optimised<MY_OP, IN_T, OUT_T>
-      (h_img, h_his, img_sz, his_sz,
-       num_threads, coop_lvl, num_hists,
        &t_start, &t_end, PRINT_INFO);
     break;
   }
