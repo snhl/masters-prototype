@@ -99,45 +99,22 @@ for k in fullcoop_kernels:
             ][clvl].append(int(t1))
         json.dump(timing, myfile)
 
-# What 'timing' looks like:
-#
-# {
-#     "AADD_NOSHARED_NOCHUNK_FULLCOOP":  { "16": [853, 852] },
-#     "AADD_NOSHARED_CHUNK_FULLCOOP":    { "16": [954, 949] },
-#     "ACAS_NOSHARED_NOCHUNK_FULLCOOP":  { "16": [18633, 18629] }
-#     "ACAS_NOSHARED_CHUNK_FULLCOOP":    { "16": [17673, 18174] },
-#     "AEXCH_NOSHARED_NOCHUNK_FULLCOOP": { "16": [1, 1] },
-#     "AEXCH_NOSHARED_CHUNK_FULLCOOP":   { "16": [28579, 29807]},
 
-#     "AADD_NOSHARED_CHUNK_COOP": {
-#         "1": [32638, 32643],
-#         "4": [14273, 14284],
-#         "16": [7729, 7694]
-#     },
-#     "AADD_SHARED_CHUNK_COOP": {
-#         "1": [12, 12],
-#         "4": [12, 12],
-#         "16": [12, 12]
-#     },
-
-#     "ACAS_NOSHARED_CHUNK_COOP": {
-#         "1": [39102, 39150],
-#         "4": [20172, 20118],
-#         "16": [12866, 12887]
-#     },
-#     "ACAS_SHARED_CHUNK_COOP": {
-#         "1": [12, 12],
-#         "4": [12, 12],
-#         "16": [12, 12]
-#     },
-#     "AEXCH_NOSHARED_CHUNK_COOP": {
-#         "1": [48209, 48073],
-#         "4": [28165, 28205],
-#         "16": [19232, 19223]
-#     },
-#     "AEXCH_SHARED_CHUNK_COOP": {
-#         "1": [6, 6],
-#         "4": [6, 6],
-#         "16": [6, 6]
-#     },
-# }
+# finally we time the sequential version
+with open(out_file, 'wb') as myfile:
+    for _ in range(iterations):
+        print '{0} {1} {2} {3} {4}'.format(
+            pgm_path, 'Sequential version', 0, his_sz, filename)
+        cmd  = [pgm_path, 00, 0, his_sz, filename]
+        try:
+            out  = check_output(cmd)
+            t0 = findall("\d+.\d+", out)
+            t1 = int(t0[0]) if len(t0) == 1 else 0
+            if len(t0) == 0:
+                print 'Did not fail, but got this: '
+                print t0
+        except CalledProcessError as err:
+            print err.output
+            t1 = 0
+        timing['SEQUENTIAL'].append(int(t1))
+    json.dump(timing, myfile)

@@ -13,6 +13,8 @@
  * x2: Cooporation in global memory.   Chunking.
  * x3: Coop. in sh. and glob. memory.  Chunking.
  */
+#define SEQUENTIAL 00
+
 #define AADD_NOSHARED_NOCHUNK_FULLCOOP  10
 #define AADD_NOSHARED_CHUNK_FULLCOOP    11
 #define AADD_NOSHARED_CHUNK_COOP        12
@@ -238,6 +240,26 @@ int main(int argc, const char* argv[])
        num_threads, seq_chunk, coop_lvl, num_hists,
        &t_start, &t_end, PRINT_INFO);
     break;
+  case SEQUENTIAL: // 00
+    printf("Sequential version (only)\n");
+    /* Timing */
+    unsigned long int seq_elapsed;
+    struct timeval seq_start, seq_end, seq_diff;
+
+    /* Execute sequential scatter */
+    scatter_seq<MY_OP, IN_T, OUT_T>
+      (h_img, h_seq, img_sz, his_sz, &seq_start, &seq_end);
+
+    /* Compute elapsed time */
+    timeval_subtract(&seq_diff, &seq_end, &seq_start);
+    seq_elapsed = seq_diff.tv_sec * 1e6 + seq_diff.tv_usec;
+
+    PRINT_RUNTIME(seq_elapsed);
+
+    /* free host memory */
+    free(h_img); free(h_his); free(h_seq);
+
+    return 0;
   }
 
   if(res != 0) {

@@ -3,7 +3,8 @@
 
 #include <math.h>
 
-#define HWD       (61440)
+//#define HWD       (61440)
+#define HWD       (30720)
 #define BLOCK_SZ  (1024)
 #define SH_MEM_SZ (48 * 1024)
 #define WARP_SZ   (32)
